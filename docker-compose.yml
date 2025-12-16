@@ -1,0 +1,67 @@
+services:
+  backend:
+    container_name: aether_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - STORAGE_MODE=${STORAGE_MODE:-RAM}
+      - MESSAGE_TTL=${MESSAGE_TTL:-86400}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/aether_blind_relay}
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
+    depends_on:
+      mongo:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - aether_mesh
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    container_name: aether_frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      - VITE_BACKEND_URL=${VITE_BACKEND_URL:-http://localhost:3000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - aether_mesh
+
+  mongo:
+    container_name: aether_db
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: aether_blind_relay
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    networks:
+      - aether_mesh
+    healthcheck:
+      test: ["CMD", "mongosh", "localhost:27017/test", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  aether_mesh:
+    driver: bridge
+
+volumes:
+  mongo_data:

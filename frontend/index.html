@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#030005" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Aether // DECENTRALIZED_MESH</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              mono: ['"JetBrains Mono"', 'monospace'],
+              sans: ['"Space Grotesk"', 'sans-serif'],
+            },
+            colors: {
+              background: '#030005',
+              surface: '#0E0E12',
+              glass: 'rgba(14, 14, 18, 0.8)',
+              primary: '#00F3FF',
+              secondary: '#BC13FE',
+              success: '#00FF94',
+              danger: '#FF2E54',
+              warning: '#FFE600',
+            },
+            backgroundImage: {
+              'cyber-grid': 'linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px)',
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'float': 'float 6s ease-in-out infinite',
+            },
+            keyframes: {
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #030005;
+        color: #e2e8f0;
+        overflow: hidden;
+        /* Disable text selection for app-like feel */
+        -webkit-user-select: none;
+        user-select: none;
+        /* Mobile scroll snap */
+        -webkit-tap-highlight-color: transparent;
+      }
+      .bg-void {
+        background-image: radial-gradient(circle at 50% 0%, #1a0b2e 0%, #030005 60%);
+      }
+      .glass-panel {
+        background: rgba(14, 14, 18, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .cyber-input {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.3s ease;
+      }
+      .cyber-input:focus {
+        border-color: #00F3FF;
+        box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+        outline: none;
+      }
+      /* PWA Safe Areas */
+      .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+      .safe-pt { padding-top: env(safe-area-inset-top); }
+      
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    </style>
+
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root" class="h-[100dvh] w-screen bg-void bg-cyber-grid bg-[length:40px_40px]"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
