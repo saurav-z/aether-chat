@@ -3,15 +3,15 @@
 # A E T H E R 
 ### Z E R O - T R U S T // M E S H // N O D E
 
-[![Vibe Coded](https://img.shields.io/badge/Vibe-Coded-ff00ff.svg)](https://github.com/saurav-z/aether)
+[![Vibe Coded](https://img.shields.io/badge/Vibe-Coded-ff00ff.svg)](https://github.com/saurav-z/aether-chat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Storage](https://img.shields.io/badge/Storage-Hybrid%20(RAM%2FDB)-blue.svg)](https://www.mongodb.com/)
-[![Protocol](https://img.shields.io/badge/Protocol-Blind%20Relay-red.svg)](https://github.com/saurav-z/aether)
+[![Protocol](https://img.shields.io/badge/Protocol-Blind%20Relay-red.svg)](https://github.com/saurav-z/aether-chat)
 
 **The Sovereign Communication Terminal.**  
 *No Logs. No Masters. No Trace.*
 
-[Launch Demo](https://aether-mesh.vercel.app) · [Report Bug](https://github.com/saurav-z/aether/issues)
+[Visit Live Site](https://aether.ekg.com.np) · [Report Bug](https://github.com/saurav-z/aether-chat/issues)
 
 </div>
 
@@ -61,7 +61,7 @@ Deploy your own sovereign node in seconds.
 
 1.  **Clone**
     ```bash
-    git clone https://github.com/saurav-z/aether.git
+    git clone https://github.com/saurav-z/aether-chat.git
     cd aether
     ```
 
