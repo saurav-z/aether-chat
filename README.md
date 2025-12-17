@@ -30,6 +30,10 @@ Aether is not just a chat app; it is a **digital safehouse**. It assumes the net
 
 ## 🛡️ THE ARCHITECTURE
 
+![Aether Architecture](docs/screenshot.png)
+
+*For a detailed technical breakdown, see [ARCHITECTURE.md](docs/ARCHITECTURE.md)*
+
 ### 1. The Blind Relay (Server)
 The server is a "dumb pipe". It sees only encrypted binary blobs. It does not know who you are, who you are talking to, or what you are saying. It stores messages in **RAM** by default. If the server is seized or rebooted, all undelivered messages are incinerated instantly.
 
@@ -61,7 +65,7 @@ Deploy your own sovereign node in seconds.
 
 1.  **Clone**
     ```bash
-    git clone https://github.com/saurav-z/aether.git
+    git clone https://github.com/saurav-z/aether-chat.git
     cd aether
     ```
 

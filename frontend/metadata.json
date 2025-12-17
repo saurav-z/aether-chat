@@ -1,5 +1,0 @@
-{
-  "name": "Aegis Quantum Chat",
-  "description": "The ultimate privacy-focused secure terminal. Features AES-256-GCM encryption, SHA-512 multi-stage key derivation, and MongoDB-ready encrypted storage. Zero-trust architecture with mandatory 3-factor authentication.",
-  "requestFramePermissions": []
-}

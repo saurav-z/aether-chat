@@ -417,18 +417,39 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
   const [showSettings, setShowSettings] = useState(false);
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
 
-  // Stealth Notification Handler
+  // Privacy-Safe Notification Handler
+  // Only notifies if user has already granted permission
+  // Never requests permission (respects privacy)
   const notify = (title: string, body: string) => {
+      // Only show notification if permission is already granted
       if (Notification.permission === 'granted') {
-          const n = new Notification(title, { body, icon: '/vite.svg', silent: true });
-          const close = () => n.close();
-          n.onclick = close;
-          setTimeout(close, 3000); 
+          // Try service worker notification first (better for PWA)
+          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({
+                  type: 'NOTIFY_IF_SAFE',
+                  title,
+                  body
+              });
+          } else {
+              // Fallback to regular Notification API
+              const n = new Notification(title, { 
+                  body, 
+                  icon: '/logo.png',
+                  badge: '/logo.png',
+                  silent: true 
+              });
+              const close = () => n.close();
+              n.onclick = close;
+              setTimeout(close, 4000);
+          }
       }
+      // If permission is denied, silently do nothing (respects user privacy)
   };
 
   useEffect(() => {
-    if (Notification.permission !== 'granted') Notification.requestPermission();
+    // DO NOT REQUEST NOTIFICATION PERMISSION
+    // Only use notifications if user has already granted permission
+    // This respects privacy and doesn't show intrusive prompts
 
     contacts.forEach((c: Contact) => {
       if (!meshRefs.current.has(c.id)) {

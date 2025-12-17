@@ -67,6 +67,16 @@ export default function App() {
     }
   };
 
+  // --- PWA & SERVICE WORKER INITIALIZATION ---
+  useEffect(() => {
+    // Register service worker for offline support and privacy-safe notifications
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('[Aether] SW registered'))
+        .catch(err => console.log('[Aether] SW registration failed:', err));
+    }
+  }, []);
+
   // --- INITIALIZATION & SESSION RESTORE ---
   useEffect(() => {
     const init = async () => {
