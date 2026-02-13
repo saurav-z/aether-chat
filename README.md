@@ -8,8 +8,33 @@
 [![Storage](https://img.shields.io/badge/Storage-Hybrid%20(RAM%2FDB)-blue.svg)](https://www.mongodb.com/)
 [![Protocol](https://img.shields.io/badge/Protocol-Blind%20Relay-red.svg)](https://github.com/saurav-z/aether-chat)
 
+
 **The Sovereign Communication Terminal.**  
-*No Logs. No Masters. No Trace.*
+*No Logs. No Masters. No Trace. No Tracking. No Backend Storage.*
+
+---
+
+## 🔒 TRUE END-TO-END ENCRYPTION
+
+All messages are encrypted on your device and can only be decrypted by the intended recipient. The backend never sees your private keys or message contents. No keys are ever shared over the network—only public keys are exchanged. Each message uses a unique symmetric key, and forward secrecy is enforced.
+
+## 🛡️ PRIVACY-FIRST, STATELESS BACKEND
+
+- The backend acts only as a relay for encrypted payloads and public keys.
+- No user data, private keys, or decrypted messages are ever stored or logged.
+- No analytics, tracking, or session logging.
+- All encryption and decryption happens on the client.
+
+## 🚀 SCALABLE, SECURE RELAY
+
+- Supports Redis pub-sub for multi-instance scaling (set `REDIS_URL`).
+- Strict rate limiting and per-socket/IP quotas prevent abuse.
+- Shard acknowledgements are bound to the receiving socket/session for security.
+- Topic IDs are validated to prevent resource exhaustion.
+
+## ⚠️ PERMANENT DATA LOSS ON TOO MANY LOGIN FAILURES
+
+After 15 incorrect password attempts, your chat vault is permanently deleted for your safety. There is no password reset or recovery.
 
 [Visit Live Site](https://aether.ekg.com.np) · [Report Bug](https://github.com/saurav-z/aether-chat/issues)
 
@@ -34,25 +59,33 @@ Aether is not just a chat app; it is a **digital safehouse**. It assumes the net
 
 *For a detailed technical breakdown, see [ARCHITECTURE.md](docs/ARCHITECTURE.md)*
 
+
 ### 1. The Blind Relay (Server)
-The server is a "dumb pipe". It sees only encrypted binary blobs. It does not know who you are, who you are talking to, or what you are saying. It stores messages in **RAM** by default. If the server is seized or rebooted, all undelivered messages are incinerated instantly.
+The server is a "dumb pipe". It sees only encrypted binary blobs. It does not know who you are, who you are talking to, or what you are saying. It stores messages in **RAM** by default, or can be scaled with Redis pub-sub for multi-instance deployments. If the server is seized or rebooted, all undelivered messages are incinerated instantly. No tracking, no logs, no analytics—ever.
+
 
 ### 2. The Dead Drop (Persistence)
 Messages are temporary.
 *   **Default TTL**: 24 Hours.
-*   **Delivery Rule**: Once *any* device downloads a message, the server deletes it.
+*   **Delivery Rule**: Once *the intended device* downloads a message, the server deletes it. Only the socket that received a shard can acknowledge/delete it.
 *   **Sync**: Identity sync clones your vault, but new messages are delivered to the *first* active device only. This preserves Forward Secrecy.
 
-### 3. The 16MB Hard Limit
-To maintain mesh integrity and browser performance during heavy encryption rounds, file transfers are strictly capped at **16MB**.
+### 3. Secure File Transfer & Limits
+To maintain mesh integrity and browser performance during heavy encryption rounds, file transfers are strictly capped at **16MB** per chunk.
+*   Files are encrypted client-side and uploaded/downloaded in chunks. The server only relays encrypted blobs, never plaintext.
+*   Chunking allows large files to be sent even on free hosts with RAM/disk limits. Chunks are deleted after delivery or TTL expiry.
 *   Images are stripped of EXIF/GPS metadata *client-side* before encryption.
-*   Files larger than 16MB are rejected at the source.
+*   Files larger than 16MB per chunk are rejected at the source.
 
 ---
+
 
 ## ⚠️ OPERATIONAL RISKS
 
 *   **Loss of Key**: Your Master Password *is* your key. There is no "Forgot Password". Lose it, and your identity is lost forever.
+*   **Permanent Deletion**: 15 failed login attempts will permanently delete your chat vault for your safety.
+*   **Session Expiry**: You can set password/session expiry (e.g., 5 min, 1 hour, 1 day, 1 week). After expiry/inactivity, the vault is locked and keys are wiped from memory.
+*   **Device Key Required**: Vault unlock requires both your password and a device-stored key. Device key can be securely transferred to another device via QR code or encrypted transfer. Without both, data is unrecoverable.
 *   **Battery Drain**: Aether keeps a live WebSocket tunnel open and performs continuous crypto-operations. It consumes significantly more power than standard apps.
 *   **Single Device**: Messages are deleted upon delivery. If you have Aether open on a Laptop and a Phone, only *one* will receive the message.
 

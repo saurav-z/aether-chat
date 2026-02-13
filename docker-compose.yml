@@ -13,8 +13,11 @@ services:
       - MESSAGE_TTL=${MESSAGE_TTL:-86400}
       - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/aether_blind_relay}
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
+      - REDIS_URL=${REDIS_URL:-}
     depends_on:
       mongo:
+        condition: service_started
+      redis:
         condition: service_started
     restart: unless-stopped
     networks:
@@ -25,6 +28,14 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+  redis:
+    container_name: aether_redis
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - aether_mesh
 
   frontend:
     container_name: aether_frontend

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { createClient } from 'redis';
+import { createAdapter } from '@socket.io/redis-adapter';
 
 /**
  * AETHER BLIND RELAY v4.1 (Migration & Metadata Update)
@@ -133,16 +135,49 @@ const io = new Server(httpServer, {
   maxHttpBufferSize: MAX_SHARD_SIZE
 });
 
+// Redis Pub-Sub Adapter for socket.io
+if (process.env.REDIS_URL) {
+  const pubClient = createClient({ url: process.env.REDIS_URL });
+  const subClient = pubClient.duplicate();
+  Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log('[AETHER] Redis adapter enabled for socket.io');
+  }).catch((err) => {
+    console.error('[AETHER] Redis connection failed:', err);
+  });
+}
+
 // --- SIGNALING LOGIC ---
 io.on('connection', (socket) => {
   
+  // --- Rate Limiting and Quotas ---
+  const RATE_LIMIT_WINDOW = 10000; // 10 seconds
+  const MAX_SHARDS_PER_WINDOW = 10; // max 10 deposits per window
+  const MAX_SHARDS_PER_SOCKET = 100; // max 100 shards per socket
+  const MAX_SHARDS_PER_IP = 500; // max 500 shards per IP
+  const ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  let depositTimestamps = [];
+  let socketShardCount = 0;
+  socket._deliveredShards = new Set();
+  // Global IP quota tracking (in-memory, resets on restart)
+  if (!global._ipShardCounts) global._ipShardCounts = {};
+  if (!global._ipShardCounts[ip]) global._ipShardCounts[ip] = 0;
+
+  // --- TopicId Validation ---
+  function isValidTopicId(topicId) {
+    return typeof topicId === 'string' && /^[a-zA-Z0-9_-]{6,64}$/.test(topicId);
+  }
+
   // 1. Join & Retrieve (Inbox Check)
   socket.on('join_rendezvous', async (topicId) => {
+    if (!isValidTopicId(topicId)) return;
     socket.join(topicId);
     try {
       const pending = await Store.get(topicId);
       if (pending.length > 0) {
         socket.emit('swarm_shards', pending);
+        // Track delivered shard IDs for this socket
+        pending.forEach(s => socket._deliveredShards.add(s.id));
       }
     } catch (e) {
       console.error("Inbox Error:", e);
@@ -150,18 +185,23 @@ io.on('connection', (socket) => {
   });
 
   // 2. Deposit (Sender writes to Dead Drop)
-  socket.on('deposit_shard', async ({ topicId, shard }) => {
-    if (!shard || shard.length > MAX_SHARD_SIZE) return;
+  socket.on('deposit_shard', async ({ topicId, shard, isChunk }) => {
+    if (!isValidTopicId(topicId) || !shard || shard.length > MAX_SHARD_SIZE) return;
+    // Rate limiting
+    const now = Date.now();
+    depositTimestamps = depositTimestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW);
+    if (depositTimestamps.length >= MAX_SHARDS_PER_WINDOW) return;
+    if (socketShardCount >= MAX_SHARDS_PER_SOCKET) return;
+    if (global._ipShardCounts[ip] >= MAX_SHARDS_PER_IP) return;
+    depositTimestamps.push(now);
+    socketShardCount++;
+    global._ipShardCounts[ip]++;
     const shardId = crypto.randomUUID();
-    
     try {
       // 1. Persistence (RAM or DB)
       await Store.save(topicId, shardId, shard);
-
       // 2. Realtime Relay
-      // Only one device (the one currently connected) will receive this event.
-      // If no one is connected, it stays in Store until TTL.
-      socket.to(topicId).emit('swarm_shards', [{ id: shardId, data: shard }]);
+      socket.to(topicId).emit('swarm_shards', [{ id: shardId, data: shard, isChunk }]);
     } catch (e) {
       console.error("Deposit Error:", e);
     }
@@ -169,11 +209,12 @@ io.on('connection', (socket) => {
 
   // 3. Acknowledge & Incinerate (Receiver confirms delivery)
   socket.on('ack_shard', async ({ topicId, shardId }) => {
+    if (!isValidTopicId(topicId)) return;
+    // Only allow ack if this socket received the shard
+    if (!socket._deliveredShards.has(shardId)) return;
     try {
-      // RECEIPT BURN:
-      // Once ONE device acknowledges receipt, the message is deleted forever.
-      // This is why we use "Move" instead of "Sync" - secondary devices will miss this message.
       await Store.delete(topicId, shardId);
+      socket._deliveredShards.delete(shardId);
     } catch (e) {
       console.error("Ack Error:", e);
     }
