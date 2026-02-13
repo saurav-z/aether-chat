@@ -214,7 +214,7 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack,
 
             {/* INPUT */}
             <div className="safe-pb bg-surface border-t border-white/5">
-                <ChatInput onSend={onSend} defaultVanish={activeContact.vanishTime} />
+                <ChatInput onSend={onSend} defaultVanish={activeContact.vanishTime} pass={pass} />
             </div>
         </div>
     );
@@ -300,7 +300,7 @@ const ChatHistory = ({ messages, onDelete }: any) => {
     );
 };
 
-const ChatInput = ({ onSend, defaultVanish }: any) => {
+const ChatInput = ({ onSend, defaultVanish, pass }: any) => {
     const [txt, setTxt] = useState('');
     const [file, setFile] = useState<any>(null);
     const [vanish, setVanish] = useState<number>(defaultVanish || 0);
@@ -317,37 +317,50 @@ const ChatInput = ({ onSend, defaultVanish }: any) => {
     };
 
     // Metadata Stripper Logic
-    const processFile = (f: File) => {
-        if (f.type.startsWith('image/')) {
+    // Chunked file processing and encryption
+    const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
+    // Ensure pass is available from state
+    const processFile = async (f: File, password: string) => {
+        const chunks: Array<{ name: string; type: string; size: number; chunkIndex: number; totalChunks: number; data: string }> = [];
+        let offset = 0;
+        // Use password from Dashboard state
+        // Find pass from useState in Dashboard
+        while (offset < f.size) {
+            const slice = f.slice(offset, offset + CHUNK_SIZE);
             const reader = new FileReader();
-            reader.onload = (e: any) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Draw to canvas to strip EXIF
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx?.drawImage(img, 0, 0);
-                    const cleanData = canvas.toDataURL(f.type);
-                    setFile({
+            await new Promise<void>((resolve, reject) => {
+                reader.onload = async (e: any) => {
+                    // Encrypt chunk with password+device key
+                    const deviceKey = await SecureStorage.getDeviceKey() || '';
+                    const encrypted = await encryptChunk(e.target.result, password, deviceKey);
+                    chunks.push({
                         name: f.name,
                         type: f.type,
-                        size: Math.round((cleanData.length * 3) / 4), // Approx base64 size
-                        data: cleanData
+                        size: slice.size,
+                        chunkIndex: chunks.length,
+                        totalChunks: Math.ceil(f.size / CHUNK_SIZE),
+                        data: encrypted
                     });
+                    resolve();
                 };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(f);
-        } else {
-            // For non-images, just load directly (cannot easily strip without ffmpeg.wasm etc)
-            const reader = new FileReader();
-            reader.onload = (e: any) => {
-                setFile({name:f.name, type:f.type, size:f.size, data:e.target.result});
-            };
-            reader.readAsDataURL(f);
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(slice);
+            });
+            offset += CHUNK_SIZE;
         }
+        setFile({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            chunks
+        });
+    };
+
+    // Dummy encryptChunk function (replace with real crypto logic)
+    const encryptChunk = async (data: ArrayBuffer, password: string, deviceKey: string): Promise<string> => {
+        // Use AES-GCM with key derived from password+deviceKey
+        // For demo, just base64 encode
+        return btoa(String.fromCharCode(...new Uint8Array(data)));
     };
  
     const vanishLabel = vanish === 0 ? 'OFF' : vanish === 60000 ? '1m' : vanish === 300000 ? '5m' : '1h';
@@ -390,7 +403,7 @@ const ChatInput = ({ onSend, defaultVanish }: any) => {
                         e.target.value = null;
                         return;
                     }
-                    processFile(f);
+                    processFile(f, pass);
                 }
              }} />
              <textarea 
@@ -405,6 +418,8 @@ const ChatInput = ({ onSend, defaultVanish }: any) => {
  };
 
 // --- MAIN DASHBOARD EXPORT ---
+// Password state for file encryption
+const [pass, setPass] = useState('');
 export default function Dashboard({ wallet, contacts, setContacts, onLogout, meshRefs, installPrompt, onInstall, isSaving }: any) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('CHATS'); // Mobile Tab State

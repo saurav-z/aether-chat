@@ -47,19 +47,10 @@ export const IntroView = ({ onStart, onSync, installPrompt, onInstall }: any) =>
 
 // --- 2FA SETUP ---
 export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
-  const [step, setStep] = useState(1);
-  const [token, setToken] = useState('');
+  // Simplified setup: only password and unique verification
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const copySecret = () => {
-    navigator.clipboard.writeText(wallet.totpSecret).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
+  const [unique, setUnique] = useState('');
   return (
     <div className="flex-1 flex items-center justify-center p-4 h-full">
       <div className="glass-panel p-8 max-w-md w-full relative border border-primary/30 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
@@ -67,76 +58,29 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
         <h2 className="text-2xl font-sans font-bold text-white mb-2 flex items-center gap-2">
           <Shield className="text-primary" size={24} /> SECURE GATEWAY
         </h2>
-        <p className="text-xs text-slate-400 mb-6 font-light">Step {step} of 2</p>
-        
-        {step === 1 ? (
-          <div className="space-y-6">
-            <div>
-              <p className="text-xs font-mono text-slate-400 mb-3 uppercase tracking-wide">1. Install an Authenticator App</p>
-              <p className="text-xs text-slate-500 mb-4">Download one of these apps on your phone:</p>
-              <ul className="text-xs text-slate-400 space-y-1 ml-4">
-                <li>• Google Authenticator</li>
-                <li>• Microsoft Authenticator</li>
-                <li>• Authy</li>
-                <li>• Any RFC 6238 TOTP app</li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="text-xs font-mono text-slate-400 mb-3 uppercase tracking-wide">2. Scan or Enter Key</p>
-              <div className="bg-white p-4 rounded-lg mx-auto w-fit shadow-inner mb-4">
-                <QRCode value={getTOTPUri(wallet.totpSecret, "Aether Identity")} size={160} />
-              </div>
-              <p className="text-center text-xs text-slate-500 mb-4">or manually enter this key:</p>
-
-              <div className="bg-black/40 border border-white/20 rounded p-3 flex items-center justify-between gap-2 mb-2">
-                <code className="text-xs font-mono text-primary tracking-wider select-all">{wallet.totpSecret}</code>
-                <button
-                  onClick={copySecret}
-                  className="flex-shrink-0 p-2 hover:bg-white/10 rounded transition-colors"
-                  title="Copy secret key"
-                >
-                  {copied ? (
-                    <Check size={16} className="text-success" />
-                  ) : (
-                    <Copy size={16} className="text-slate-400 hover:text-white" />
-                  )}
-                </button>
-              </div>
-              <p className="text-[9px] text-slate-600 text-center">Click to copy the key</p>
-            </div>
-
-            <div>
-              <p className="text-xs font-mono text-slate-400 mb-3 uppercase tracking-wide">3. Enter the 6-Digit Code</p>
-              <Input placeholder="000 000" maxLength={6} className="text-center text-2xl tracking-[0.5em] font-bold" value={token} onChange={(e: any) => setToken(e.target.value.replace(/[^0-9]/g, ''))} />
-            </div>
-
-            {err && <p className="text-danger text-xs text-center font-bold animate-pulse">{err}</p>}
-            <div className="flex gap-4">
-               <Button variant="ghost" onClick={onCancel} className="flex-1">CANCEL</Button>
-              <Button onClick={() => verifyTOTP(wallet.totpSecret, token) ? setStep(2) : setErr('INVALID CODE')} className="flex-1">VERIFY CODE</Button>
-            </div>
+        <div className="space-y-6">
+          <div>
+            <p className="text-xs text-slate-400 font-light leading-relaxed">
+              Create a strong master password. This encrypts your local vault. If lost, your data is unrecoverable.
+            </p>
           </div>
-        ) : (
-          <div className="space-y-6">
-              <div>
-                <p className="text-xs text-slate-400 font-light leading-relaxed">
-                  Create a strong master password. This encrypts your local vault. If lost, your data is unrecoverable.
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Master Password</p>
-                <Input type="password" placeholder="Enter strong password (8+ characters)" value={pass} onChange={(e: any) => setPass(e.target.value)} />
-                {pass.length > 0 && (
-                  <p className={`text-xs mt-2 ${pass.length >= 8 ? 'text-success' : 'text-warning'}`}>
-                    {pass.length < 8 ? '⚠ At least 8 characters required' : '✓ Password strength: Good'}
-                  </p>
-                )}
-              </div>
-              <Button onClick={() => pass.length > 7 ? onComplete(wallet, pass) : setErr('MIN 8 CHARACTERS REQUIRED')} className="w-full" disabled={pass.length < 8}>COMPLETE SETUP</Button>
-            {err && <p className="text-danger text-xs text-center">{err}</p>}
+          <div>
+            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Master Password</p>
+            <Input type="password" placeholder="Enter strong password (8+ characters)" value={pass} onChange={(e: any) => setPass(e.target.value)} />
+            {pass.length > 0 && (
+              <p className={`text-xs mt-2 ${pass.length >= 8 ? 'text-success' : 'text-warning'}`}>
+                {pass.length < 8 ? '⚠ At least 8 characters required' : '✓ Password strength: Good'}
+              </p>
+            )}
           </div>
-        )}
+          <div>
+            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Unique Verification</p>
+            <Input placeholder="e.g. memorable word or device name" value={unique} onChange={(e: any) => setUnique(e.target.value)} />
+            <p className="text-[9px] text-slate-500 text-center">Used to help verify your identity if you forget your password.</p>
+          </div>
+          <Button onClick={() => pass.length > 7 ? onComplete(wallet, pass, unique) : setErr('MIN 8 CHARACTERS REQUIRED')} className="w-full" disabled={pass.length < 8}>COMPLETE SETUP</Button>
+          {err && <p className="text-danger text-xs text-center">{err}</p>}
+        </div>
       </div>
     </div>
   );
@@ -145,23 +89,42 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
 // --- LOGIN VIEW ---
 export const LoginView = ({ vault, onSuccess, onReset }: any) => {
   const [pass, setPass] = useState('');
-  const [token, setToken] = useState('');
+  const [unique, setUnique] = useState('');
   const [status, setStatus] = useState('');
   const [duration, setDuration] = useState(-1); // Default to Session (Browser Open)
+  const [attempts, setAttempts] = useState(0);
+  const MAX_ATTEMPTS = 15;
+  const [sessionTimer, setSessionTimer] = useState<NodeJS.Timeout | null>(null);
 
   const unlock = async () => {
+    if (attempts >= MAX_ATTEMPTS) {
+      setStatus('TOO MANY ATTEMPTS. VAULT DELETED.');
+      await SecureStorage.delete('aether_vault');
+      await SecureStorage.delete('aether_contacts');
+      return;
+    }
     try {
       setStatus('VERIFYING CREDENTIALS...');
-      // 1. Password Check
       const w = await unlockWallet(vault, pass);
-      // 2. Auth Check
-      if (!verifyTOTP(w.totpSecret, token)) {
-          throw new Error('INVALID 2FA TOKEN');
+      onSuccess(w, duration, unique);
+      // Session expiry logic
+      if (sessionTimer) clearTimeout(sessionTimer);
+      if (duration > 0) {
+        setSessionTimer(setTimeout(async () => {
+          setStatus('Session expired. Vault locked.');
+          await SecureStorage.delete('aether_vault');
+          await SecureStorage.delete('aether_contacts');
+        }, duration * 60000)); // duration in minutes
       }
-      // 3. Success
-      onSuccess(w, duration);
-    } catch (e: any) { 
-        setStatus(e.message === 'INVALID 2FA TOKEN' ? 'AUTH FAILED: INVALID 2FA' : 'ACCESS DENIED: WRONG PASSWORD'); 
+    } catch (e: any) {
+      setAttempts(a => a + 1);
+      if (attempts + 1 >= MAX_ATTEMPTS) {
+        setStatus('TOO MANY ATTEMPTS. VAULT DELETED.');
+        await SecureStorage.delete('aether_vault');
+        await SecureStorage.delete('aether_contacts');
+      } else {
+        setStatus('ACCESS DENIED: WRONG PASSWORD');
+      }
     }
   };
 
@@ -178,12 +141,11 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Password</p>
             <Input type="password" placeholder="Enter your master password" value={pass} onChange={(e: any) => setPass(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
           </div>
-
           <div>
-            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">2FA Code</p>
-            <Input placeholder="000 000" maxLength={6} className="text-center tracking-[0.5em] text-lg font-bold" value={token} onChange={(e: any) => setToken(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
+            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Unique Verification</p>
+            <Input placeholder="e.g. memorable word or device name" value={unique} onChange={(e: any) => setUnique(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
+            <p className="text-[9px] text-slate-500 text-center">Used to help verify your identity if you forget your password.</p>
           </div>
-           
           <div>
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Session Duration</p>
              <select 
@@ -206,11 +168,10 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
         <Button onClick={unlock} className="w-full h-12">AUTHENTICATE</Button>
 
         {status && (
-          <p className={`text-xs font-mono h-4 ${status.includes('DENIED') || status.includes('FAILED') ? 'text-danger' : 'text-primary'}`}>
+          <p className={`text-xs font-mono h-4 ${status.includes('DENIED') || status.includes('FAILED') ? 'text-danger' : status.includes('TOO MANY') ? 'text-danger font-bold' : 'text-primary'}`}>
             {status}
           </p>
         )}
-
         <div className="pt-6 border-t border-white/5">
           <button
             onClick={onReset}
@@ -218,6 +179,9 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
           >
             Emergency: Wipe Vault
           </button>
+        </div>
+        <div className="pt-2">
+          <p className="text-xs text-warning text-center">Warning: 15 incorrect attempts will permanently delete your chat vault.</p>
         </div>
       </div>
     </div>

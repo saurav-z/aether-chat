@@ -32,5 +32,21 @@ export const SecureStorage = {
   async clear() {
     const db = await initDB();
     return db.clear(STORE_NAME);
+  },
+
+  // Device key storage and sync
+  async setDeviceKey(deviceKey: string) {
+    return this.set('device_key', deviceKey);
+  },
+  async getDeviceKey() {
+    return this.get('device_key');
+  },
+  async exportDeviceKey() {
+    const key = await this.getDeviceKey();
+    // Export as QR or encrypted blob
+    return key;
+  },
+  async importDeviceKey(key: string) {
+    return this.setDeviceKey(key);
   }
 };
