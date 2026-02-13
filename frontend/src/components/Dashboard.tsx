@@ -169,7 +169,7 @@ const VaultView = ({ wallet }: any) => {
 };
 
 // --- CHAT WINDOW COMPONENT ---
-const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack, setShowSettings }: any) => {
+const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack, setShowSettings, pass }: any) => {
     if (!activeContact) {
         return (
             <div className="flex-1 hidden md:flex flex-col items-center justify-center opacity-20 pointer-events-none select-none">
@@ -418,9 +418,9 @@ const ChatInput = ({ onSend, defaultVanish, pass }: any) => {
  };
 
 // --- MAIN DASHBOARD EXPORT ---
-// Password state for file encryption
-const [pass, setPass] = useState('');
 export default function Dashboard({ wallet, contacts, setContacts, onLogout, meshRefs, installPrompt, onInstall, isSaving }: any) {
+    // Password state for file encryption
+    const [pass, setPass] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('CHATS'); // Mobile Tab State
   
@@ -435,53 +435,53 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
   // Privacy-Safe Notification Handler
   // Only notifies if user has already granted permission
   // Never requests permission (respects privacy)
-  const notify = (title: string, body: string) => {
-      // Only show notification if permission is already granted
-      if (Notification.permission === 'granted') {
-          // Try service worker notification first (better for PWA)
-          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-              navigator.serviceWorker.controller.postMessage({
-                  type: 'NOTIFY_IF_SAFE',
-                  title,
-                  body
-              });
-          } else {
-              // Fallback to regular Notification API
-              const n = new Notification(title, { 
-                  body, 
-                  icon: '/logo.png',
-                  badge: '/logo.png',
-                  silent: true 
-              });
-              const close = () => n.close();
-              n.onclick = close;
-              setTimeout(close, 4000);
-          }
-      }
-      // If permission is denied, silently do nothing (respects user privacy)
-  };
+    const notify = (title: string, body: string) => {
+        // Only show notification if permission is already granted
+        if (Notification.permission === 'granted') {
+            // Try service worker notification first (better for PWA)
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'NOTIFY_IF_SAFE',
+                    title,
+                    body
+                });
+            } else {
+                // Fallback to regular Notification API
+                const n = new Notification(title, {
+                    body,
+                    icon: '/logo.png',
+                    badge: '/logo.png',
+                    silent: true
+                });
+                const close = () => n.close();
+                n.onclick = close;
+                setTimeout(close, 4000);
+            }
+        }
+        // If permission is denied, silently do nothing (respects user privacy)
+    };
 
-  useEffect(() => {
+    useEffect(() => {
     // DO NOT REQUEST NOTIFICATION PERMISSION
     // Only use notifications if user has already granted permission
     // This respects privacy and doesn't show intrusive prompts
 
-    contacts.forEach((c: Contact) => {
-      if (!meshRefs.current.has(c.id)) {
-        const m = new MeshNetwork(
-          c.sharedSecret,
-          (msg: Message) => {
-              handleIncomingMessage(c.id, msg);
-              if (document.hidden) {
-                  notify("Aether Signal", "Encrypted transmission received.");
-              }
-          },
-          (s) => setStatusMap(prev => ({...prev, [c.id]: s}))
-        );
-        meshRefs.current.set(c.id, m);
-      }
-    });
-  }, [contacts]);
+        contacts.forEach((c: Contact) => {
+            if (!meshRefs.current.has(c.id)) {
+                const m = new MeshNetwork(
+                    c.sharedSecret,
+                    (msg: Message) => {
+                        handleIncomingMessage(c.id, msg);
+                        if (document.hidden) {
+                            notify("Aether Signal", "Encrypted transmission received.");
+                        }
+                    },
+                    (s) => setStatusMap(prev => ({ ...prev, [c.id]: s }))
+                );
+                meshRefs.current.set(c.id, m);
+            }
+        });
+    }, [contacts]);
 
   const handleIncomingMessage = (contactId: string, msg: Message) => {
     setContacts((prev: Contact[]) => prev.map(c => {
