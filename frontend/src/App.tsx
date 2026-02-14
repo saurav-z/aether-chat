@@ -4,6 +4,8 @@ import { SecureStorage } from './services/storage';
 import { GlobalContextMenu } from './components/ui/GlobalContextMenu';
 import { IntroView, Setup2FAView, LoginView, ScanSyncView } from './components/Auth';
 import Dashboard from './components/Dashboard';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationContainer } from './components/NotificationContainer';
 import { Download, Shield, EyeOff, Lock } from 'lucide-react';
 
 export default function App() {
@@ -296,30 +298,34 @@ export default function App() {
   };
 
   return (
-    <>
-      {/* PRIVACY CURTAIN OVERLAY */}
-      {isBlurred && (
-        <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6">
+    <NotificationProvider>
+      <>
+        {/* PRIVACY CURTAIN OVERLAY */}
+        {isBlurred && (
+          <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6">
             <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center animate-pulse">
-                <EyeOff size={40} className="text-primary" />
+              <EyeOff size={40} className="text-primary" />
             </div>
             <div className="text-center">
-                <h1 className="text-2xl font-bold text-white tracking-[0.5em] font-sans">AETHER</h1>
-                <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Secure Session Paused</p>
+              <h1 className="text-2xl font-bold text-white tracking-[0.5em] font-sans">AETHER</h1>
+              <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Secure Session Paused</p>
             </div>
             <div className="px-4 py-2 border border-white/10 rounded bg-white/5 text-[10px] text-slate-500 font-mono">
-                FOCUS WINDOW TO RESUME
+              FOCUS WINDOW TO RESUME
             </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      <GlobalContextMenu 
-        onLogout={handleLogout}
-        onClearActiveChat={() => {}}
-        onNuke={handleNuke}
-        activeContactId={null} 
-      />
-      <div className="h-full w-full flex flex-col">{renderView()}</div>
-    </>
+        <NotificationContainer />
+
+        <GlobalContextMenu
+          onLogout={handleLogout}
+          onClearActiveChat={() => { }}
+          onNuke={handleNuke}
+          activeContactId={null}
+        />
+        <div className="h-full w-full flex flex-col">{renderView()}</div>
+      </>
+    </NotificationProvider>
   );
 }
