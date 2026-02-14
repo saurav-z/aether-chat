@@ -50,7 +50,6 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
   // Simplified setup: only password and unique verification
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
-  const [unique, setUnique] = useState('');
   return (
     <div className="flex-1 flex items-center justify-center p-4 h-full">
       <div className="glass-panel p-8 max-w-md w-full relative border border-primary/30 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
@@ -66,19 +65,15 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
           </div>
           <div>
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Master Password</p>
-            <Input type="password" placeholder="Enter strong password (8+ characters)" value={pass} onChange={(e: any) => setPass(e.target.value)} />
+            <Input type="password" placeholder="Enter strong password (6+ characters)" value={pass} onChange={(e: any) => setPass(e.target.value)} />
             {pass.length > 0 && (
-              <p className={`text-xs mt-2 ${pass.length >= 8 ? 'text-success' : 'text-warning'}`}>
-                {pass.length < 8 ? '⚠ At least 8 characters required' : '✓ Password strength: Good'}
+              <p className={`text-xs mt-2 ${pass.length >= 6 ? 'text-success' : 'text-warning'}`}>
+                {pass.length < 6 ? '⚠ At least 6 characters required' : '✓ Password strength: Good'}
               </p>
             )}
           </div>
-          <div>
-            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Unique Verification</p>
-            <Input placeholder="e.g. memorable word or device name" value={unique} onChange={(e: any) => setUnique(e.target.value)} />
-            <p className="text-[9px] text-slate-500 text-center">Used to help verify your identity if you forget your password.</p>
-          </div>
-          <Button onClick={() => pass.length > 7 ? onComplete(wallet, pass, unique) : setErr('MIN 8 CHARACTERS REQUIRED')} className="w-full" disabled={pass.length < 8}>COMPLETE SETUP</Button>
+          {/* Unique Verification removed */}
+          <Button onClick={() => pass.length > 5 ? onComplete(wallet, pass) : setErr('MIN 6 CHARACTERS REQUIRED')} className="w-full" disabled={pass.length < 6}>COMPLETE SETUP</Button>
           {err && <p className="text-danger text-xs text-center">{err}</p>}
         </div>
       </div>
@@ -87,34 +82,63 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
 };
 
 // --- LOGIN VIEW ---
+
 export const LoginView = ({ vault, onSuccess, onReset }: any) => {
   const [pass, setPass] = useState('');
-  const [unique, setUnique] = useState('');
   const [status, setStatus] = useState('');
   const [duration, setDuration] = useState(-1); // Default to Session (Browser Open)
   const [attempts, setAttempts] = useState(0);
   const MAX_ATTEMPTS = 15;
   const [sessionTimer, setSessionTimer] = useState<NodeJS.Timeout | null>(null);
 
+  // On mount, check for persisted session
+  useEffect(() => {
+    const session = localStorage.getItem('aether_session');
+    if (session) {
+      try {
+        const { hash, expiresAt, duration: storedDuration } = JSON.parse(session);
+        if (expiresAt && Date.now() < expiresAt && vault) {
+          // Try to unlock with stored hash (password hash)
+          setStatus('Restoring session...');
+          // For security, do NOT store raw password, only hash
+          // User must re-enter password if hash mismatch
+          // This is a best-effort: if hash matches, auto-unlock
+          // (This assumes unlockWallet is deterministic for same password)
+          // If you want to store the password itself, you must warn user
+          // Here, we just skip and let user login if hash is not available
+        }
+      } catch { }
+    }
+  }, [vault]);
+
   const unlock = async () => {
     if (attempts >= MAX_ATTEMPTS) {
       setStatus('TOO MANY ATTEMPTS. VAULT DELETED.');
       await SecureStorage.delete('aether_vault');
       await SecureStorage.delete('aether_contacts');
+      localStorage.removeItem('aether_session');
       return;
     }
     try {
       setStatus('VERIFYING CREDENTIALS...');
       const w = await unlockWallet(vault, pass);
-      onSuccess(w, duration, unique);
+      onSuccess(w, duration);
       // Session expiry logic
       if (sessionTimer) clearTimeout(sessionTimer);
       if (duration > 0) {
+        // Store session info in localStorage
+        const expiresAt = Date.now() + duration * 60000;
+        // For security, store a hash of the password, not the password itself
+        const hash = await hashString(pass);
+        localStorage.setItem('aether_session', JSON.stringify({ hash, expiresAt, duration }));
         setSessionTimer(setTimeout(async () => {
           setStatus('Session expired. Vault locked.');
           await SecureStorage.delete('aether_vault');
           await SecureStorage.delete('aether_contacts');
+          localStorage.removeItem('aether_session');
         }, duration * 60000)); // duration in minutes
+      } else {
+        localStorage.removeItem('aether_session');
       }
     } catch (e: any) {
       setAttempts(a => a + 1);
@@ -122,6 +146,7 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
         setStatus('TOO MANY ATTEMPTS. VAULT DELETED.');
         await SecureStorage.delete('aether_vault');
         await SecureStorage.delete('aether_contacts');
+        localStorage.removeItem('aether_session');
       } else {
         setStatus('ACCESS DENIED: WRONG PASSWORD');
       }
@@ -141,11 +166,7 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Password</p>
             <Input type="password" placeholder="Enter your master password" value={pass} onChange={(e: any) => setPass(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
           </div>
-          <div>
-            <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Unique Verification</p>
-            <Input placeholder="e.g. memorable word or device name" value={unique} onChange={(e: any) => setUnique(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
-            <p className="text-[9px] text-slate-500 text-center">Used to help verify your identity if you forget your password.</p>
-          </div>
+          {/* Unique Verification removed */}
           <div>
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Session Duration</p>
              <select 
@@ -251,24 +272,34 @@ export const ScanSyncView = ({ onBack }: any) => {
         return () => meshRef.current?.destroy();
     }, [mode]);
 
-    // Scanner Initialization
+  // Scanner Initialization with Camera Permission
     useEffect(() => {
         if (mode === 'SCAN') {
             let scanner: Html5QrcodeScanner | null = null;
-            setTimeout(() => {
-                if (document.getElementById("sync-reader")) {
-                    scanner = new Html5QrcodeScanner("sync-reader", { fps: 10, qrbox: 250 }, false);
-                    scanner.render((t) => {
+          const initScanner = async () => {
+            try {
+              // Request camera permission
+              await navigator.mediaDevices.getUserMedia({ video: true });
+                  setTimeout(() => {
+                    if (document.getElementById("sync-reader")) {
+                      scanner = new Html5QrcodeScanner("sync-reader", { fps: 10, qrbox: 250 }, false);
+                      scanner.render((t) => {
                         try {
-                            const d = JSON.parse(t);
-                            if (d.type === 'AETHER_SYNC' && d.code) {
-                                scanner?.clear();
-                                connectToSource(d.code);
-                            }
-                        } catch {}
-                    }, () => {});
-                }
-            }, 100);
+                          const d = JSON.parse(t);
+                          if (d.type === 'AETHER_SYNC' && d.code) {
+                            scanner?.clear();
+                            connectToSource(d.code);
+                          }
+                        } catch { }
+                      }, () => { });
+                    }
+                  }, 100);
+            } catch (err) {
+              console.error('Camera permission denied or unavailable:', err);
+              setStatus('CAMERA PERMISSION DENIED');
+            }
+          };
+          initScanner();
             return () => { try{scanner?.clear()}catch{}; };
         }
     }, [mode]);

@@ -706,7 +706,16 @@ const BurnerScanner = ({ wallet, onClose, onConnect }: any) => {
     };
     useEffect(() => {
         let scanner: Html5QrcodeScanner | null = null;
-        setTimeout(() => { if(document.getElementById("reader")) { scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false); scanner.render((t) => { try { const d = JSON.parse(t); if (d.code) { scanner?.clear(); connect(d.code); } } catch {} }, () => {}); }}, 100);
+        const initScanner = async () => {
+            try {
+                // Request camera permission
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                setTimeout(() => { if (document.getElementById("reader")) { scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false); scanner.render((t) => { try { const d = JSON.parse(t); if (d.code) { scanner?.clear(); connect(d.code); } } catch { } }, () => { }); } }, 100);
+            } catch (err) {
+                console.error('Camera permission denied:', err);
+            }
+        };
+        initScanner();
         return () => { try{scanner?.clear()}catch{}; meshRef.current?.destroy(); };
     }, []);
     return <div className="space-y-4"><div id="reader" className="rounded overflow-hidden"></div><Input placeholder="ENTER ID" value={manual} onChange={(e:any) => setManual(e.target.value)} /><Button onClick={() => connect(manual)}>CONNECT</Button></div>;
@@ -769,30 +778,40 @@ const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {
             const payload = { vault: rawVault, contacts: rawContacts };
 
             let scanner: Html5QrcodeScanner | null = null;
-            setTimeout(() => {
-                if (document.getElementById("source-reader")) {
-                    scanner = new Html5QrcodeScanner("source-reader", { fps: 10, qrbox: 250 }, false);
-                    scanner.render(async (t) => {
-                        try {
-                            const d = JSON.parse(t);
-                            if (d.type === 'AETHER_REVERSE_SYNC' && d.code) {
-                                scanner?.clear();
-                                setStatus('CONNECTING TO TARGET...');
-                                const secret = await hashString("SYNC_" + d.code);
-                                const m = new MeshNetwork(secret, () => {}, () => {});
-                                meshRef.current = m;
-                                
-                                // Broadcast Immediately
-                                const interval = setInterval(() => {
-                                    m.broadcast({ type: 'SYNC_PAYLOAD', data: payload });
-                                    setStatus('SENDING ENCRYPTED VAULT...');
-                                }, 1500);
-                                setTimeout(() => { clearInterval(interval); setStatus('MIGRATION COMPLETE'); }, 10000);
-                            }
-                        } catch {}
-                    }, () => {});
+            const initScanner = async () => {
+                try {
+                    // Request camera permission
+                    await navigator.mediaDevices.getUserMedia({ video: true });
+                    setTimeout(() => {
+                        if (document.getElementById("source-reader")) {
+                            scanner = new Html5QrcodeScanner("source-reader", { fps: 10, qrbox: 250 }, false);
+                            scanner.render(async (t) => {
+                                try {
+                                    const d = JSON.parse(t);
+                                    if (d.type === 'AETHER_REVERSE_SYNC' && d.code) {
+                                        scanner?.clear();
+                                        setStatus('CONNECTING TO TARGET...');
+                                        const secret = await hashString("SYNC_" + d.code);
+                                        const m = new MeshNetwork(secret, () => { }, () => { });
+                                        meshRef.current = m;
+
+                                        // Broadcast Immediately
+                                        const interval = setInterval(() => {
+                                            m.broadcast({ type: 'SYNC_PAYLOAD', data: payload });
+                                            setStatus('SENDING ENCRYPTED VAULT...');
+                                        }, 1500);
+                                        setTimeout(() => { clearInterval(interval); setStatus('MIGRATION COMPLETE'); }, 10000);
+                                    }
+                                } catch { }
+                            }, () => { });
+                        }
+                    }, 100);
+                } catch (err) {
+                    console.error('Camera permission denied:', err);
+                    setError('CAMERA PERMISSION DENIED');
                 }
-            }, 100);
+            };
+            initScanner();
         } catch (e) { setError("AUTH FAILED"); }
     };
 
