@@ -6,7 +6,7 @@ import {
   Settings, Menu, X, Copy, Share2, ScanLine, Trash2, Users, Edit2, Timer, CheckCircle, UserPlus, Smartphone, Shield, Lock, Eye, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, QrCode, ArrowRightLeft
 } from 'lucide-react';
 import { Button, Input, Modal } from './ui/Common';
-import { Contact, Message, Wallet, computeSharedSecret, hashString, generateGroupKey, getRendezvousTopic, verifyTOTP, encryptStorage, decryptStorage } from '../services/cryptoUtils';
+import { Contact, Message, Wallet, computeSharedSecret, hashString, generateGroupKey, getRendezvousTopic, unlockWallet, encryptStorage, decryptStorage } from '../services/cryptoUtils';
 import { MeshNetwork } from '../services/mesh';
 import { SecureStorage } from '../services/storage';
 
@@ -738,7 +738,6 @@ const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {
     const [mode, setMode] = useState<'DISPLAY' | 'SCAN'>('DISPLAY');
     const [step, setStep] = useState(1);
     const [pass, setPass] = useState('');
-    const [totp, setTotp] = useState('');
     const [error, setError] = useState('');
     const [syncData, setSyncData] = useState<any>(null);
     const [status, setStatus] = useState('IDLE');
@@ -747,10 +746,12 @@ const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {
     // MODE: DISPLAY (Source displays QR for Target to scan)
     const initiateSync = async () => {
         try {
-            if (!verifyTOTP(wallet.totpSecret, totp)) throw new Error("INVALID 2FA CODE");
-            setStep(2);
-            // We fetch the raw encrypted strings from IDB
+            // Verify master password instead of TOTP for sync
             const rawVault = await SecureStorage.get('aether_vault');
+            if (!rawVault) throw new Error('NO VAULT');
+            // Attempt to unlock with provided master password
+            await unlockWallet(rawVault, pass);
+            setStep(2);
             const rawContacts = await SecureStorage.get('aether_contacts');
             const payload = { vault: rawVault, contacts: rawContacts };
             const syncId = crypto.randomUUID();
@@ -770,10 +771,11 @@ const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {
         setMode('SCAN');
         // Pre-fetch data
         try {
-            if (!verifyTOTP(wallet.totpSecret, totp)) throw new Error("INVALID 2FA CODE");
-            setStep(2);
-            
             const rawVault = await SecureStorage.get('aether_vault');
+            if (!rawVault) throw new Error('NO VAULT');
+            // Verify master password instead of TOTP for sync
+            await unlockWallet(rawVault, pass);
+            setStep(2);
             const rawContacts = await SecureStorage.get('aether_contacts');
             const payload = { vault: rawVault, contacts: rawContacts };
 
@@ -822,8 +824,7 @@ const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {
             {step === 1 ? (
                 <>
                     <div className="bg-danger/10 border border-danger/30 p-4 rounded text-xs text-danger/80"><div className="font-bold flex items-center gap-2 mb-2"><Shield size={14} /> SECURITY CHECKPOINT</div>You are about to export your entire encrypted identity. Ensure no cameras are watching.</div>
-                    <Input type="password" placeholder="MASTER PASSWORD" value={pass} onChange={(e:any) => setPass(e.target.value)} />
-                    <Input placeholder="2FA CODE" maxLength={6} className="text-center tracking-widest" value={totp} onChange={(e:any) => setTotp(e.target.value)} />
+                    <Input type="password" placeholder="MASTER PASSWORD" value={pass} onChange={(e: any) => setPass(e.target.value)} />
                     {error && <p className="text-danger text-center text-xs animate-pulse">{error}</p>}
                     
                     <div className="flex gap-2">
