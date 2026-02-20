@@ -13,6 +13,8 @@ import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 // --- TYPES ---
 type Tab = 'CHATS' | 'VAULT' | 'SETTINGS';
 
+const normalizeId = (id: string) => id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
 // --- DESKTOP SIDE BAR RAIL ---
 const SidebarRail = ({ activeTab, setActiveTab, showNotifications, setShowNotifications, totalUnread }: any) => {
     return (
@@ -482,6 +484,13 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('CHATS'); // Mobile Tab State
   
+    // Refs for callbacks to avoid stale closures
+    const activeIdRef = useRef<string | null>(null);
+    const activeTabRef = useRef<Tab>('CHATS');
+
+    useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+    useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
   // Modal States
   const [showInvite, setShowInvite] = useState(false);
   const [showScan, setShowScan] = useState(false);
@@ -530,8 +539,12 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                     c.sharedSecret,
                     (msg: Message) => {
                         handleIncomingMessage(c.id, msg);
-                        if (document.hidden) {
-                            notify("Aether Signal", "Encrypted transmission received.");
+                        // Trigger device notification if app is hidden OR user is not in the specific chat view
+                        const isNotThisChat = activeIdRef.current !== c.id || activeTabRef.current !== 'CHATS';
+                        if (document.hidden || isNotThisChat) {
+                            if (msg.type !== 'seen' && msg.type !== 'delete') {
+                                notify("Aether Signal", "New secure transmission received.");
+                            }
                         }
                     },
                     (s) => setStatusMap(prev => ({ ...prev, [c.id]: s }))
@@ -849,7 +862,7 @@ const BurnerInvite = ({ wallet, onClose, onConnect }: any) => {
        };
 
        const id = generateShortId();
-      hashString("BURNER_" + id).then(secret => {
+       hashString("BURNER_" + normalizeId(id)).then(secret => {
          setCode(id);
          const m = new MeshNetwork(secret, (msg: any) => {
             if (msg.type === 'HANDSHAKE') {
@@ -893,7 +906,7 @@ const BurnerScanner = ({ wallet, onClose, onConnect }: any) => {
 
     const connect = async (c: string) => {
         if (!c.trim()) return;
-        const normalized = c.trim().toUpperCase(); // Strict normalization for cross-device consistency
+        const normalized = normalizeId(c); // Strict normalization: strip dashes/spaces and uppercase
         setLoading(true);
         setError('');
         try {
