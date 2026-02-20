@@ -5,7 +5,7 @@ import {
     Settings, Menu, X, Copy, Share2, ScanLine, Trash2, Users, Edit2, Timer, CheckCircle, UserPlus, Smartphone, Shield, Lock, Eye, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, QrCode, ArrowRightLeft, Camera, Upload, Hash
 } from 'lucide-react';
 import { Button, Input, Modal } from './ui/Common';
-import { Contact, Message, Wallet, computeSharedSecret, hashString, generateGroupKey, getRendezvousTopic, unlockWallet, encryptStorage, decryptStorage } from '../services/cryptoUtils';
+import { Contact, Message, Wallet, computeSharedSecret, hashString, hashBuffer, generateGroupKey, getRendezvousTopic, unlockWallet, encryptStorage, decryptStorage, buf2hex } from '../services/cryptoUtils';
 import { MeshNetwork } from '../services/mesh';
 import { SecureStorage } from '../services/storage';
 import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
@@ -215,7 +215,7 @@ const VaultView = ({ wallet }: any) => {
 };
 
 // --- CHAT WINDOW COMPONENT ---
-const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack, setShowSettings, pass }: any) => {
+const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack, setShowSettings, pass, activeTransfer, onCancelTransfer }: any) => {
     if (!activeContact) {
         return (
             <div className="flex-1 hidden md:flex flex-col items-center justify-center opacity-20 pointer-events-none select-none">
@@ -227,6 +227,31 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack,
 
     return (
         <div className="fixed inset-0 z-50 md:static md:inset-auto flex-1 flex flex-col w-full h-full bg-surface">
+            {/* PROGRESS OVERLAY */}
+            {activeTransfer && (
+                <div className="bg-black/80 backdrop-blur-md p-3 border-b border-primary/20 flex flex-col gap-2 animate-in slide-in-from-top duration-300 z-30">
+                    <div className="flex justify-between items-center px-1">
+                        <div className="flex items-center gap-2">
+                            <Activity size={14} className="text-primary animate-pulse" />
+                            <span className="text-[10px] font-mono text-primary tracking-widest uppercase">Securing Transmission...</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-400">{activeTransfer.progress}%</span>
+                    </div>
+                    <div className="h-1 bg-white/5 rounded-full overflow-hidden flex items-center">
+                        <div
+                            className="h-full bg-primary transition-all duration-300 shadow-[0_0_10px_#00f3ff]"
+                            style={{ width: `${activeTransfer.progress}%` }}
+                        />
+                    </div>
+                    <button
+                        onClick={onCancelTransfer}
+                        className="self-center mt-1 px-4 py-1.5 rounded-full bg-danger/10 border border-danger/20 text-danger text-[10px] font-mono hover:bg-danger hover:text-white transition-all transform active:scale-95 flex items-center gap-1.5"
+                    >
+                        <X size={10} /> CANCEL UPLOAD
+                    </button>
+                </div>
+            )}
+
             {/* HEADER */}
             <div className="h-16 border-b border-white/5 bg-surface/95 backdrop-blur flex items-center px-4 justify-between z-20 shadow-sm safe-pt">
                 <div className="flex items-center gap-2">
@@ -326,7 +351,10 @@ const ChatHistory = ({ messages, onDelete }: any) => {
                                     <div className="mt-3 p-3 bg-black/40 rounded border border-white/10 flex items-center gap-3 overflow-hidden hover:border-primary/50 transition-colors cursor-pointer">
                                         {msg.file.type.startsWith('image') ? <img src={msg.file.data} className="h-32 object-contain" /> : <File size={24} className="text-primary" />}
                                         <div className="min-w-0 flex-1">
-                                            <div className="text-xs font-bold truncate">{msg.file.name}</div>
+                                            <div className="flex items-center gap-1 overflow-hidden">
+                                                <div className="text-xs font-bold truncate">{msg.file.name}</div>
+                                                {msg.file.integrity && <Shield size={10} className="text-primary shrink-0" />}
+                                            </div>
                                             <div className="text-[10px] text-slate-500">{(msg.file.size/1024).toFixed(1)}KB</div>
                                         </div>
                                         <a href={msg.file.data} download={msg.file.name} className="p-2 hover:bg-white/10 rounded-full"><Download size={16} /></a>
@@ -376,53 +404,27 @@ const ChatInput = ({ onSend, defaultVanish, pass }: any) => {
        setTxt(''); setFile(null);
     };
 
-    // Metadata Stripper Logic
-    // Chunked file processing and encryption
-    const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
-    // Ensure pass is available from state
-    const processFile = async (f: File, password: string) => {
-        const chunks: Array<{ name: string; type: string; size: number; chunkIndex: number; totalChunks: number; data: string }> = [];
-        let offset = 0;
-        // Use password from Dashboard state
-        // Find pass from useState in Dashboard
-        while (offset < f.size) {
-            const slice = f.slice(offset, offset + CHUNK_SIZE);
+    const processFile = async (f: File) => {
+        try {
+            const buffer = await f.arrayBuffer();
+            const integrity = await hashBuffer(buffer);
             const reader = new FileReader();
-            await new Promise<void>((resolve, reject) => {
-                reader.onload = async (e: any) => {
-                    // Encrypt chunk with password+device key
-                    const deviceKey = await SecureStorage.getDeviceKey() || '';
-                    const encrypted = await encryptChunk(e.target.result, password, deviceKey);
-                    chunks.push({
-                        name: f.name,
-                        type: f.type,
-                        size: slice.size,
-                        chunkIndex: chunks.length,
-                        totalChunks: Math.ceil(f.size / CHUNK_SIZE),
-                        data: encrypted
-                    });
-                    resolve();
-                };
-                reader.onerror = reject;
-                reader.readAsArrayBuffer(slice);
-            });
-            offset += CHUNK_SIZE;
+            reader.onload = (e: any) => {
+                setFile({
+                    name: f.name,
+                    type: f.type,
+                    size: f.size,
+                    data: e.target.result,
+                    integrity
+                });
+            };
+            reader.readAsDataURL(f);
+        } catch (e) {
+            console.error("File Integrity Lockup", e);
         }
-        setFile({
-            name: f.name,
-            type: f.type,
-            size: f.size,
-            chunks
-        });
     };
 
-    // Dummy encryptChunk function (replace with real crypto logic)
-    const encryptChunk = async (data: ArrayBuffer, password: string, deviceKey: string): Promise<string> => {
-        // Use AES-GCM with key derived from password+deviceKey
-        // For demo, just base64 encode
-        return btoa(String.fromCharCode(...new Uint8Array(data)));
-    };
- 
+
     const vanishLabel = vanish === 0 ? 'OFF' : vanish === 60000 ? '1m' : vanish === 300000 ? '5m' : '1h';
  
     return (
@@ -463,7 +465,7 @@ const ChatInput = ({ onSend, defaultVanish, pass }: any) => {
                         e.target.value = null;
                         return;
                     }
-                    processFile(f, pass);
+                    processFile(f);
                 }
              }} />
              <textarea 
@@ -487,17 +489,20 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     // Refs for callbacks to avoid stale closures
     const activeIdRef = useRef<string | null>(null);
     const activeTabRef = useRef<Tab>('CHATS');
+    const contactsRef = useRef<Contact[]>([]);
 
     useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
     useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+    useEffect(() => { contactsRef.current = contacts; }, [contacts]);
 
   // Modal States
   const [showInvite, setShowInvite] = useState(false);
   const [showScan, setShowScan] = useState(false);
   const [showGroup, setShowGroup] = useState(false);
   const [showSync, setShowSync] = useState(false); // Renamed internally to Sync for state, but UI shows Migration
-  const [showSettings, setShowSettings] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+    const [activeTransfer, setActiveTransfer] = useState<{ id: string, progress: number } | null>(null);
 
   // Privacy-Safe Notification Handler
   // Only notifies if user has already granted permission
@@ -542,17 +547,30 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                         // Trigger device notification if app is hidden OR user is not in the specific chat view
                         const isNotThisChat = activeIdRef.current !== c.id || activeTabRef.current !== 'CHATS';
                         if (document.hidden || isNotThisChat) {
-                            if (msg.type !== 'seen' && msg.type !== 'delete') {
+                            if (msg.type !== 'seen' && msg.type !== 'delete' && msg.type !== 'sync_manifest' && msg.type !== 'sync_delivery') {
                                 notify("Aether Signal", "New secure transmission received.");
                             }
                         }
                     },
-                    (s) => setStatusMap(prev => ({ ...prev, [c.id]: s }))
+                    (s) => {
+                        setStatusMap(prev => ({ ...prev, [c.id]: s }));
+                        if (s === 'SECURE_RELAY_CONNECTED') {
+                            setTimeout(() => syncHistory(c.id), 1000);
+                        }
+                    }
                 );
                 meshRefs.current.set(c.id, m);
             }
         });
     }, [contacts]);
+
+    const syncHistory = (contactId: string) => {
+        const contact = contactsRef.current.find(c => c.id === contactId);
+        if (!contact) return;
+        // Send last 10 message IDs to peer for verification
+        const lastIds = contact.messages.filter(m => m.type !== 'system' && m.id).slice(-10).map(m => m.id);
+        sendSignal(contactId, { type: 'sync_manifest', ids: lastIds });
+    };
 
   const handleIncomingMessage = (contactId: string, msg: Message) => {
     setContacts((prev: Contact[]) => prev.map(c => {
@@ -576,6 +594,28 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         // Handle Seen Status
         if (msg.type === 'seen') {
             return { ...c, messages: c.messages.map(m => (m.id === msg.text || !msg.text) ? { ...m, status: 'seen' } : m) };
+        }
+
+        // Handle History Sync Manifest
+        if (msg.type === 'sync_manifest') {
+            const myMessages = c.messages;
+            const theirIds = new Set(msg.ids);
+            // Find messages I have that they don't seem to have (based on their manifest)
+            const toSend = myMessages.filter(m => m.type !== 'system' && !theirIds.has(m.id)).slice(-10);
+            if (toSend.length > 0) {
+                sendSignal(contactId, { type: 'sync_delivery', messages: toSend });
+            }
+            return c;
+        }
+
+        // Handle History Sync Delivery
+        if (msg.type === 'sync_delivery' && msg.messages) {
+            const myIds = new Set(c.messages.map(m => m.id));
+            const newMsgs = msg.messages.filter((m: Message) => !myIds.has(m.id));
+            if (newMsgs.length === 0) return c;
+            // Sort by timestamp to maintain order
+            const combined = [...c.messages, ...newMsgs].sort((a, b) => a.timestamp - b.timestamp);
+            return { ...c, messages: combined, unread: c.unread + newMsgs.length };
         }
 
        // Handle Invites
@@ -646,8 +686,32 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             replyTo, expiresAt: vanishTime ? Date.now() + vanishTime : undefined,
             status: 'delivered'
         };
-        await mesh.broadcast(payload);
-        setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [...c.messages, { ...payload }] } : c));
+
+        if (file) {
+            setActiveTransfer({ id: msgId, progress: 0 });
+        }
+
+        try {
+            await mesh.broadcast(payload, (p: number) => {
+                if (file) setActiveTransfer({ id: msgId, progress: p });
+            }, msgId);
+
+            setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [...c.messages, { ...payload }] } : c));
+            } catch (e) {
+                console.warn("[MESH] Broadcast interrupted or failed:", e);
+            } finally {
+                if (file) setActiveTransfer(null);
+            }
+        }
+    };
+
+    const cancelTransfer = () => {
+        if (activeTransfer && activeId) {
+            const mesh = meshRefs.current.get(activeId);
+            if (mesh) {
+                mesh.cancelBroadcast(activeTransfer.id);
+                setActiveTransfer(null);
+            }
     }
   };
 
@@ -765,7 +829,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
          <ChatWindow 
             activeContact={activeContact} messages={activeContact?.messages || []} onSend={sendMessage} onDelete={sendDelete} 
             status={activeContact ? statusMap[activeContact.id] : ''} onBack={() => setActiveId(null)} setShowSettings={setShowSettings}
-                  pass={pass}
+                  pass={pass} activeTransfer={activeTransfer} onCancelTransfer={cancelTransfer}
          />
       </div>
 

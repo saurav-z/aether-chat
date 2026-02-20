@@ -26,14 +26,16 @@ export interface Wallet {
 export interface Message {
   id: string;
   text: string;
-  file?: { name: string, type: string, size: number, data: string };
+  file?: { name: string, type: string, size: number, data: string, integrity?: string };
   timestamp: number;
   sender: 'me' | 'them' | string; // 'them' or alias
   senderAlias?: string;
   replyTo?: string;
   expiresAt?: number;
-  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect';
+  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect' | 'sync_manifest' | 'sync_delivery';
   status?: 'delivered' | 'seen';
+  ids?: string[];
+  messages?: Message[];
 }
 
 export interface Contact {
@@ -52,7 +54,6 @@ export interface Contact {
 // --- UTILS ---
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-const buf2hex = (buffer: ArrayBufferLike) => [...new Uint8Array(buffer)].map(x => x.toString(16).padStart(2, '0')).join('');
 const hex2buf = (hex: string) => {
     if (!hex) return new ArrayBuffer(0);
     const match = hex.match(/.{1,2}/g);
@@ -91,8 +92,15 @@ export const verifyTOTP = (secret: string, token: string) => {
 };
 
 // --- HASHING ---
+export const buf2hex = (buffer: ArrayBufferLike) => [...new Uint8Array(buffer)].map(x => x.toString(16).padStart(2, '0')).join('');
+
 export const hashString = async (str: string): Promise<string> => {
   const buf = enc.encode(str);
+  const hash = await window.crypto.subtle.digest("SHA-256", buf);
+  return buf2hex(hash);
+};
+
+export const hashBuffer = async (buf: ArrayBuffer): Promise<string> => {
   const hash = await window.crypto.subtle.digest("SHA-256", buf);
   return buf2hex(hash);
 };

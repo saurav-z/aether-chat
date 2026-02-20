@@ -26,10 +26,10 @@ export class MeshNetwork {
   private onStatus: (status: string) => void;
   private topicInterval: any;
   private activeTopics: Set<string> = new Set();
-  
-  // Reassembly Buffer
+
   private pendingChunks: Map<string, { count: number, total: number, parts: string[] }> = new Map();
   private processedIds: Set<string> = new Set(); // Dedup
+  private activeBroadcasts: Set<string> = new Set(); // For cancellation
 
   constructor(sharedSecret: string, onMessage: (msg: any) => void, onStatus: (s: string) => void) {
     this.sharedSecret = sharedSecret;
@@ -152,25 +152,50 @@ export class MeshNetwork {
     }
   }
 
-  public async broadcast(payload: any) {
+  public async broadcast(payload: any, onProgress?: (p: number) => void, msgIdOverride?: string): Promise<string> {
+    const msgId = msgIdOverride || crypto.randomUUID();
+    // Wrap payload with the ID if not already there
+    if (!payload.id) payload.id = msgId;
+
     const encryptedFull = await encryptPayload(this.sharedSecret, JSON.stringify(payload));
     const topic = await getRendezvousTopic(this.sharedSecret, 0);
 
     if (encryptedFull.length < CHUNK_SIZE) {
       this.socket.emit('deposit_shard', { topicId: topic, shard: encryptedFull });
       this.onStatus('SENT_SECURE');
-      return;
+      if (onProgress) onProgress(100);
+      return msgId;
     }
 
-    const msgId = crypto.randomUUID();
+    this.activeBroadcasts.add(msgId);
     const totalChunks = Math.ceil(encryptedFull.length / CHUNK_SIZE);
 
     for (let i = 0; i < totalChunks; i++) {
+      // Cancellation check
+      if (!this.activeBroadcasts.has(msgId)) {
+        this.onStatus('TRANSFER_CANCELLED');
+        throw new Error('TRANSFER_CANCELLED');
+      }
+
       const chunk = encryptedFull.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
       const packet: ChunkPacket = { type: 'CHUNK', msgId, i, n: totalChunks, d: chunk };
       this.socket.emit('deposit_shard', { topicId: topic, shard: JSON.stringify(packet) });
+
+      if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100));
+
+      // Async yield every 20 chunks to keep UI snappy
+      if (i % 20 === 0) {
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
+
+    this.activeBroadcasts.delete(msgId);
     this.onStatus('SENT_SECURE_CHUNKS');
+    return msgId;
+  }
+
+  public cancelBroadcast(msgId: string) {
+    this.activeBroadcasts.delete(msgId);
   }
 
   private async fastHash(str: string): Promise<string> {
