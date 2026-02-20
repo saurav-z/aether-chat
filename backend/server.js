@@ -221,17 +221,30 @@ io.on('connection', (socket) => {
   });
 });
 
+app.get('/count/:topicId', async (req, res) => {
+  const { topicId } = req.params;
+  if (typeof topicId !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(topicId)) {
+    return res.status(400).json({ error: 'invalid topic' });
+  }
+  try {
+    const shards = await Store.get(topicId);
+    res.json({ count: shards.length });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/status', (req, res) => res.json({
+  status: 'online',
+  storage_mode: STORAGE_MODE,
+  ttl_seconds: MESSAGE_TTL
+}));
+
 // --- HOSTING ---
 const distPath = join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res) => res.sendFile(join(distPath, 'index.html')));
-} else {
-  app.get('/', (req, res) => res.json({ 
-    status: 'online', 
-    storage_mode: STORAGE_MODE,
-    ttl_seconds: MESSAGE_TTL
-  }));
 }
 
 // Start

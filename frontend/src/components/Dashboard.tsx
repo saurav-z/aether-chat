@@ -1,20 +1,50 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'react-qr-code';
-import { Html5QrcodeScanner } from 'html5-qrcode';
 import { 
   Send, Paperclip, Activity, File, Download, LogOut,
-  Settings, Menu, X, Copy, Share2, ScanLine, Trash2, Users, Edit2, Timer, CheckCircle, UserPlus, Smartphone, Shield, Lock, Eye, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, QrCode, ArrowRightLeft
+    Settings, Menu, X, Copy, Share2, ScanLine, Trash2, Users, Edit2, Timer, CheckCircle, UserPlus, Smartphone, Shield, Lock, Eye, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, QrCode, ArrowRightLeft, Camera, Upload, Hash
 } from 'lucide-react';
 import { Button, Input, Modal } from './ui/Common';
 import { Contact, Message, Wallet, computeSharedSecret, hashString, generateGroupKey, getRendezvousTopic, unlockWallet, encryptStorage, decryptStorage } from '../services/cryptoUtils';
 import { MeshNetwork } from '../services/mesh';
 import { SecureStorage } from '../services/storage';
+import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 
 // --- TYPES ---
 type Tab = 'CHATS' | 'VAULT' | 'SETTINGS';
 
+// --- DESKTOP SIDE BAR RAIL ---
+const SidebarRail = ({ activeTab, setActiveTab, showNotifications, setShowNotifications, totalUnread }: any) => {
+    return (
+        <div className="hidden md:flex w-20 flex-col bg-surface border-r border-white/5 items-center py-6 gap-8 z-50 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center font-bold text-black font-mono shadow-[0_0_15px_rgba(0,243,255,0.3)] shrink-0">A</div>
+
+            <div className="flex-1 flex flex-col gap-2">
+                <button title="Communications" onClick={() => setActiveTab('CHATS')} className={`p-4 rounded-xl transition-all ${activeTab === 'CHATS' ? 'bg-primary/10 text-primary shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+                    <MessageSquare size={24} />
+                </button>
+                <button title="Secure Vault" onClick={() => setActiveTab('VAULT')} className={`p-4 rounded-xl transition-all ${activeTab === 'VAULT' ? 'bg-primary/10 text-primary shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+                    <HardDrive size={24} />
+                </button>
+                <button title="System Settings" onClick={() => setActiveTab('SETTINGS')} className={`p-4 rounded-xl transition-all ${activeTab === 'SETTINGS' ? 'bg-primary/10 text-primary shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+                    <Layout size={24} />
+                </button>
+            </div>
+
+            <button title="Network Signals" onClick={() => setShowNotifications(!showNotifications)} className="relative p-4 text-slate-500 hover:text-white transition-colors hover:bg-white/5 rounded-xl mb-4">
+                <Activity size={24} className={totalUnread > 0 ? 'text-primary animate-pulse' : ''} />
+                {totalUnread > 0 && (
+                    <span className="absolute top-3 right-3 w-5 h-5 bg-primary text-black text-[10px] font-bold rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(0,243,255,0.5)] border-2 border-surface">
+                        {totalUnread > 9 ? '9+' : totalUnread}
+                    </span>
+                )}
+            </button>
+        </div>
+    );
+};
+
 // --- SIDEBAR (CHATS LIST) ---
-const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobileMenuOpen, setShowInvite, setShowScan, setShowGroup, setShowSync, statusMap }: any) => {
+const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobileMenuOpen, setShowInvite, setShowScan, setShowGroup, setShowSync, statusMap, showNotifications, setShowNotifications, totalUnread }: any) => {
     const [rollingId, setRollingId] = useState("INITIALIZING...");
 
     useEffect(() => {
@@ -36,7 +66,7 @@ const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobile
         {/* HEADER */}
         <div className="p-4 border-b border-white/5 flex items-center justify-between h-16 bg-black/20 shrink-0">
             <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center font-bold text-black font-mono shadow-[0_0_10px_rgba(0,243,255,0.3)]">A</div>
+                    <div className="md:hidden w-8 h-8 rounded bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center font-bold text-black font-mono shadow-[0_0_10px_rgba(0,243,255,0.3)]">A</div>
                 <div className="flex flex-col">
                     <div className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">Rolling Network ID</div>
                     <div className="flex items-center gap-2">
@@ -45,6 +75,15 @@ const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobile
                     </div>
                 </div>
             </div>
+
+                <button onClick={() => setShowNotifications(!showNotifications)} className="md:hidden relative p-2 text-slate-400 hover:text-white transition-colors">
+                    <Activity size={20} className={totalUnread > 0 ? 'text-primary animate-pulse' : ''} />
+                    {totalUnread > 0 && (
+                        <span className="absolute top-0 right-0 w-4 h-4 bg-primary text-black text-[9px] font-bold rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(0,243,255,0.5)]">
+                            {totalUnread > 9 ? '9+' : totalUnread}
+                        </span>
+                    )}
+                </button>
         </div>
 
         {/* QUICK ACTIONS */}
@@ -74,7 +113,12 @@ const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobile
                     <div className="flex-1 text-left min-w-0">
                         <div className="flex justify-between items-center">
                             <span className={`text-sm font-bold truncate ${activeId === c.id ? 'text-primary' : 'text-slate-300'}`}>{c.alias}</span>
-                            {c.unread > 0 && <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(0,243,255,0.5)]" />}
+                            {c.unread > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-[10px] bg-primary text-black px-1.5 rounded-full font-bold">{c.unread}</span>
+                                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(0,243,255,0.5)]" />
+                                </span>
+                            )}
                         </div>
                         <div className="text-[10px] text-slate-500 font-mono truncate flex items-center gap-1 mt-1">
                             <span className={`w-1.5 h-1.5 rounded-full ${statusMap[c.id] ? 'bg-green-500 shadow-[0_0_5px_lime]' : 'bg-slate-700'}`}></span>
@@ -203,7 +247,15 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, onBack,
                         </div>
                     </div>
                 </div>
-                <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white p-2"><Settings size={20} /></button>
+                <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white p-2 flex items-center gap-2">
+                    <div className="flex flex-col items-end">
+                        <span className="text-[8px] text-slate-500 font-mono">LINK STRENGTH</span>
+                        <div className="flex gap-0.5 mt-0.5">
+                            {[1, 2, 3, 4].map(i => <div key={i} className={`w-3 h-1 rounded-full ${status === 'SECURE_RELAY_CONNECTED' ? 'bg-primary' : 'bg-slate-800'}`}></div>)}
+                        </div>
+                    </div>
+                    <Settings size={20} />
+                </button>
             </div>
 
             {/* MESSAGES */}
@@ -278,11 +330,17 @@ const ChatHistory = ({ messages, onDelete }: any) => {
                                         <a href={msg.file.data} download={msg.file.name} className="p-2 hover:bg-white/10 rounded-full"><Download size={16} /></a>
                                     </div>
                                 )}
-                                <div className="flex justify-end items-center mt-2 gap-2">
-                                    {msg.expiresAt && <Timer size={10} className="text-danger animate-pulse" />}
+                                <div className="flex items-center gap-1">
+                                    {msg.expiresAt && <Timer size={10} className="text-danger animate-pulse mr-1" />}
                                     <div className="text-[9px] opacity-40 font-mono tracking-wider">
-                                        {new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </div>
+                                    {msg.sender === 'me' && (
+                                        <div className="flex items-center -ml-0.5">
+                                            <CheckCircle size={8} className={`${msg.status === 'seen' ? 'text-primary' : 'text-slate-600'}`} />
+                                            {msg.status === 'seen' && <CheckCircle size={8} className="text-primary -ml-1" />}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             {/* Actions */}
@@ -489,7 +547,24 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
        
        // Handle Deletions
        if (msg.type === 'delete') return { ...c, messages: c.messages.filter(m => m.id !== msg.text) };
-       
+
+        // Handle Clear Chat
+        if (msg.type === 'clear_chat') return { ...c, messages: [], unread: 0 };
+
+        // Handle Disconnect
+        if (msg.type === 'disconnect') {
+            setTimeout(() => {
+                setContacts((curr: Contact[]) => curr.filter(contact => contact.id !== contactId));
+                if (activeId === contactId) setActiveId(null);
+            }, 100);
+            return c;
+        }
+
+        // Handle Seen Status
+        if (msg.type === 'seen') {
+            return { ...c, messages: c.messages.map(m => (m.id === msg.text || !msg.text) ? { ...m, status: 'seen' } : m) };
+        }
+
        // Handle Invites
        if (msg.type === 'invite') {
          try {
@@ -514,25 +589,86 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
        }
 
        const isCurrent = activeId === contactId;
+        if (isCurrent && !document.hidden) {
+            // Send seen receipt immediately
+            setTimeout(() => sendSignal(contactId, { type: 'seen', text: msg.id }), 500);
+        }
+
        return { ...c, messages: [...c.messages, { ...msg, sender: msg.senderAlias || 'them' }], unread: isCurrent ? 0 : c.unread + 1 };
     }));
   };
 
+    const sendSignal = async (contactId: string, payload: any) => {
+        const mesh = meshRefs.current.get(contactId);
+        if (mesh) {
+            await mesh.broadcast({
+                id: crypto.randomUUID(),
+                timestamp: Date.now(),
+                sender: 'me',
+                ...payload
+            });
+        }
+    };
+
+    useEffect(() => {
+        if (activeId && !document.hidden) {
+            const contact = contacts.find((c: any) => c.id === activeId);
+            if (contact && contact.unread > 0) {
+                // Mark all as seen
+                sendSignal(activeId, { type: 'seen' });
+                setContacts((prev: Contact[]) => prev.map(c => c.id === activeId ? { ...c, unread: 0 } : c));
+            }
+        }
+    }, [activeId, contacts]);
+
   const activeContact = contacts.find((c: Contact) => c.id === activeId);
 
-  const sendMessage = async (txt: string, file: any, replyTo?: string, vanishTime?: number) => {
+    const sendMessage = async (txt: string, file: any, replyTo?: string, vanishTime?: number) => {
     if (!activeContact) return;
     const mesh = meshRefs.current.get(activeContact.id);
     if (mesh) {
         const msgId = crypto.randomUUID();
         const payload: Message = { 
             id: msgId, text: txt, file, timestamp: Date.now(), sender: 'me', senderAlias: activeContact.myGroupAlias || undefined,
-            replyTo, expiresAt: vanishTime ? Date.now() + vanishTime : undefined
+            replyTo, expiresAt: vanishTime ? Date.now() + vanishTime : undefined,
+            status: 'delivered'
         };
         await mesh.broadcast(payload);
         setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [...c.messages, { ...payload }] } : c));
     }
   };
+
+    // --- SERVICE WORKER TOPIC SYNCING ---
+    useEffect(() => {
+        const syncSwTopics = async () => {
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                const topics = await Promise.all(contacts.map(async (c: Contact) => {
+                    const mesh = meshRefs.current.get(c.id);
+                    if (mesh && mesh.sharedSecret) {
+                        return await getRendezvousTopic(mesh.sharedSecret);
+                    }
+                    return null;
+                }));
+                const validTopics = topics.filter(t => t !== null);
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'SYNC_TOPICS',
+                    topics: validTopics,
+                    url: import.meta.env.VITE_BACKEND_URL || window.location.origin
+                });
+            }
+        };
+        if (contacts.length > 0) syncSwTopics();
+        const interval = setInterval(syncSwTopics, 45000); // Sync every 45s (topics rotate every 1m)
+        return () => clearInterval(interval);
+    }, [contacts]);
+
+    const [showNotifications, setShowNotifications] = useState(false);
+    const totalUnread = contacts.reduce((sum: number, c: Contact) => sum + (c.unread || 0), 0);
+
+    const clearAllNotifications = () => {
+        setContacts((prev: Contact[]) => prev.map(c => ({ ...c, unread: 0 })));
+        setShowNotifications(false);
+    };
 
   const sendDelete = async (msgId: string) => {
     if (!activeContact) return;
@@ -571,7 +707,12 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
 
   // --- RENDER ---
   return (
-    <div className="flex-1 flex flex-col md:flex-row bg-background relative overflow-hidden h-full">
+      <div className="flex-1 flex bg-background relative overflow-hidden h-full">
+          <SidebarRail
+              activeTab={activeTab} setActiveTab={setActiveTab}
+              showNotifications={showNotifications} setShowNotifications={setShowNotifications}
+              totalUnread={totalUnread}
+          />
       
       {/* DESKTOP SIDEBAR / MOBILE TAB CONTENT */}
       <div className={`
@@ -583,6 +724,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 wallet={wallet} contacts={contacts} activeId={activeId} setActiveId={setActiveId} onLogout={onLogout} 
                 setShowInvite={setShowInvite} setShowScan={setShowScan} setShowGroup={setShowGroup} setShowSync={setShowSync} statusMap={statusMap}
                 isSaving={isSaving}
+                      showNotifications={showNotifications} setShowNotifications={setShowNotifications} totalUnread={totalUnread}
              />
          )}
          {activeTab === 'VAULT' && <VaultView wallet={wallet} />}
@@ -610,6 +752,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
          <ChatWindow 
             activeContact={activeContact} messages={activeContact?.messages || []} onSend={sendMessage} onDelete={sendDelete} 
             status={activeContact ? statusMap[activeContact.id] : ''} onBack={() => setActiveId(null)} setShowSettings={setShowSettings}
+                  pass={pass}
          />
       </div>
 
@@ -630,6 +773,40 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
       </div>
 
       {/* MODALS */}
+          <Modal isOpen={showNotifications} onClose={() => setShowNotifications(false)} title="NETWORK SIGNALS">
+              <div className="space-y-4">
+                  {Notification.permission !== 'granted' && (
+                      <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl flex flex-col items-center gap-3 text-center mb-4">
+                          <Shield className="text-primary" size={24} />
+                          <div className="space-y-1">
+                              <div className="text-xs font-bold text-white uppercase tracking-widest">Enable Desktop Alerts</div>
+                              <p className="text-[10px] text-slate-400">Receive encrypted signal notifications while Aether is in the background.</p>
+                          </div>
+                          <Button onClick={() => Notification.requestPermission()} className="w-full py-2 text-xs">GRANT ACCESS</Button>
+                      </div>
+                  )}
+
+                  {contacts.filter((c: Contact) => (c.unread || 0) > 0).length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 font-mono text-xs">NO UNREAD TRANSMISSIONS</div>
+                  ) : (
+                      <div className="space-y-2">
+                          {contacts.filter((c: Contact) => (c.unread || 0) > 0).map((c: Contact) => (
+                              <button key={c.id} onClick={() => { setActiveId(c.id); setShowNotifications(false); }} className="w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/10 transition-colors">
+                                  <div className="flex items-center gap-3">
+                                      <span className="text-2xl">{c.emoji}</span>
+                                      <div className="text-left">
+                                          <div className="font-bold text-sm text-white">{c.alias}</div>
+                                          <div className="text-[10px] text-primary font-mono">{c.unread} NEW MESSAGE{c.unread > 1 ? 'S' : ''}</div>
+                                      </div>
+                                  </div>
+                                  <ChevronLeft className="rotate-180 text-slate-600" size={16} />
+                              </button>
+                          ))}
+                          <Button variant="ghost" className="w-full text-xs text-slate-500 uppercase tracking-widest mt-4" onClick={clearAllNotifications}>Clear All</Button>
+                      </div>
+                  )}
+              </div>
+          </Modal>
       <Modal isOpen={showInvite} onClose={() => setShowInvite(false)} title="BURNER INVITATION">
          <BurnerInvite wallet={wallet} onClose={() => setShowInvite(false)} onConnect={(c: Contact) => { setContacts((prev: Contact[]) => [...prev, c]); setShowInvite(false); }} />
       </Modal>
@@ -640,7 +817,10 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
          <GroupCreator contacts={contacts} onCreate={createGroup} />
       </Modal>
       <Modal isOpen={showSettings} onClose={() => setShowSettings(false)} title="CONTACT PROTOCOLS">
-         {activeContact && <ContactSettings contact={activeContact} onSave={(updates: any) => { setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, ...updates } : c)); setShowSettings(false); }} />}
+              {activeContact && <ContactSettings contact={activeContact}
+                  onSave={(updates: any) => { setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, ...updates } : c)); setShowSettings(false); }}
+                  onSignal={(type: string) => { sendSignal(activeContact.id, { type }); setShowSettings(false); }}
+              />}
       </Modal>
       <Modal isOpen={showSync} onClose={() => setShowSync(false)} title="IDENTITY MIGRATION">
          <SyncDeviceModal wallet={wallet} contacts={contacts} onClose={() => setShowSync(false)} />
@@ -656,7 +836,19 @@ const BurnerInvite = ({ wallet, onClose, onConnect }: any) => {
    const meshRef = useRef<MeshNetwork | null>(null);
 
    useEffect(() => {
-      const id = crypto.randomUUID();
+       // Generate a shorter, unambiguous uppercase code for easier manual entry
+       // Using 12 characters: 4-4-4 format for readability
+       const generateShortId = () => {
+           const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No I, O, 0, 1
+           let res = '';
+           for (let i = 0; i < 12; i++) {
+               res += chars.charAt(Math.floor(Math.random() * chars.length));
+               if ((i + 1) % 4 === 0 && i !== 11) res += '-';
+           }
+           return res;
+       };
+
+       const id = generateShortId();
       hashString("BURNER_" + id).then(secret => {
          setCode(id);
          const m = new MeshNetwork(secret, (msg: any) => {
@@ -681,8 +873,8 @@ const BurnerInvite = ({ wallet, onClose, onConnect }: any) => {
         </div>
         <div className="space-y-2">
             <div className="flex items-center justify-center gap-2">
-                <code className="bg-white/10 px-3 py-1 rounded text-primary font-mono text-sm tracking-wider">{code.substring(0,8)}...</code>
-                <Button variant="secondary" onClick={copy} className="py-1 px-3 text-xs"><Copy size={12} /></Button>
+                   <code className="bg-white/10 px-3 py-1 rounded text-primary font-mono text-sm tracking-wider">{code}</code>
+                   <button onClick={copy} className="p-2 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"><Copy size={14} /></button>
             </div>
             <div className="text-3xl font-mono text-primary font-bold animate-pulse">{fmtTime(timeLeft)}</div>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest">Link Auto-Destructs</p>
@@ -692,33 +884,141 @@ const BurnerInvite = ({ wallet, onClose, onConnect }: any) => {
 };
 
 const BurnerScanner = ({ wallet, onClose, onConnect }: any) => {
+    const [mode, setMode] = useState<'CHOOSER' | 'SCAN' | 'MANUAL'>('CHOOSER');
     const [manual, setManual] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
     const meshRef = useRef<MeshNetwork | null>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
+
     const connect = async (c: string) => {
-        const secret = await hashString("BURNER_" + c);
-        const m = new MeshNetwork(secret, (msg: any) => {
-            if (msg.type === 'HANDSHAKE_REPLY') {
-                computeSharedSecret(wallet.privateKey, msg.publicKeyRaw).then(s => { onConnect({ id: crypto.randomUUID(), alias: msg.alias, emoji: msg.emoji, sharedSecret: s, messages: [], unread: 0 }); m.destroy(); });
-            }
-        }, () => {});
-        meshRef.current = m;
-        setInterval(() => m.broadcast({ type: 'HANDSHAKE', publicKeyRaw: wallet.publicKeyRaw, alias: 'Peer', emoji: '👋' }), 1500);
+        if (!c.trim()) return;
+        const normalized = c.trim().toUpperCase(); // Strict normalization for cross-device consistency
+        setLoading(true);
+        setError('');
+        try {
+            const secret = await hashString("BURNER_" + normalized);
+            const m = new MeshNetwork(secret, (msg: any) => {
+                if (msg.type === 'HANDSHAKE_REPLY') {
+                    computeSharedSecret(wallet.privateKey, msg.publicKeyRaw).then(s => {
+                        onConnect({ id: crypto.randomUUID(), alias: msg.alias, emoji: msg.emoji, sharedSecret: s, messages: [], unread: 0 });
+                        m.destroy();
+                    });
+                }
+            }, () => { });
+            meshRef.current = m;
+            const broadcastInterval = setInterval(() => m.broadcast({ type: 'HANDSHAKE', publicKeyRaw: wallet.publicKeyRaw, alias: 'Peer', emoji: '👋' }), 1500);
+
+            // Timeout if no handshake after 20s
+            setTimeout(() => {
+                clearInterval(broadcastInterval);
+                if (loading) {
+                    setLoading(false);
+                    setError('CONNECTION TIMEOUT');
+                }
+            }, 20000);
+
+        } catch (e) {
+            setError('FAILED TO INITIALIZE MESH');
+            setLoading(false);
+        }
     };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setError('');
+        const html5QrCode = new Html5Qrcode("reader-hidden");
+        try {
+            const result = await html5QrCode.scanFile(file, true);
+            const d = JSON.parse(result);
+            if (d.code) {
+                connect(d.code);
+            } else {
+                setError('INVALID QR CODE');
+            }
+        } catch (err) {
+            setError('COULD NOT READ QR');
+        }
+    };
+
     useEffect(() => {
         let scanner: Html5QrcodeScanner | null = null;
-        const initScanner = async () => {
-            try {
-                // Request camera permission
-                await navigator.mediaDevices.getUserMedia({ video: true });
-                setTimeout(() => { if (document.getElementById("reader")) { scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false); scanner.render((t) => { try { const d = JSON.parse(t); if (d.code) { scanner?.clear(); connect(d.code); } } catch { } }, () => { }); } }, 100);
-            } catch (err) {
-                console.error('Camera permission denied:', err);
-            }
-        };
-        initScanner();
+        if (mode === 'SCAN') {
+            const initScanner = async () => {
+                try {
+                    await navigator.mediaDevices.getUserMedia({ video: true });
+                    setTimeout(() => {
+                        if (document.getElementById("reader")) {
+                            scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false);
+                            scanner.render((t) => {
+                                try {
+                                    const d = JSON.parse(t);
+                                    if (d.code) {
+                                        scanner?.clear();
+                                        connect(d.code);
+                                    }
+                                } catch { }
+                            }, () => { });
+                        }
+                    }, 100);
+                } catch (err) {
+                    setError('CAMERA PERMISSION DENIED');
+                    setMode('CHOOSER');
+                }
+            };
+            initScanner();
+        }
         return () => { try{scanner?.clear()}catch{}; meshRef.current?.destroy(); };
-    }, []);
-    return <div className="space-y-4"><div id="reader" className="rounded overflow-hidden"></div><Input placeholder="ENTER ID" value={manual} onChange={(e:any) => setManual(e.target.value)} /><Button onClick={() => connect(manual)}>CONNECT</Button></div>;
+    }, [mode]);
+
+    if (loading) return (
+        <div className="flex flex-col items-center justify-center p-8 space-y-4">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-primary font-mono animate-pulse">ESTABLISHING QUANTUM LINK...</p>
+        </div>
+    );
+
+    return (
+        <div className="space-y-4">
+            <div id="reader-hidden" style={{ display: 'none' }}></div>
+
+            {mode === 'CHOOSER' && (
+                <div className="grid grid-cols-1 gap-3">
+                    <Button onClick={() => setMode('SCAN')} className="flex items-center justify-center gap-3 h-16 bg-primary/20 border-primary/40 hover:bg-primary/30">
+                        <Camera size={20} /> SCAN QR CODE
+                    </Button>
+                    <Button onClick={() => fileRef.current?.click()} variant="secondary" className="flex items-center justify-center gap-3 h-16">
+                        <Upload size={20} /> UPLOAD FROM GALLERY
+                    </Button>
+                    <Button onClick={() => setMode('MANUAL')} variant="secondary" className="flex items-center justify-center gap-3 h-16">
+                        <Hash size={20} /> ENTER ID MANUALLY
+                    </Button>
+                    <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+                </div>
+            )}
+
+            {mode === 'SCAN' && (
+                <div className="space-y-4">
+                    <div id="reader" className="rounded overflow-hidden border border-white/10 shadow-lg"></div>
+                    <Button variant="secondary" onClick={() => setMode('CHOOSER')} className="w-full">BACK</Button>
+                </div>
+            )}
+
+            {mode === 'MANUAL' && (
+                <div className="space-y-4">
+                    <Input placeholder="PASTE PEER ID HERE" value={manual} onChange={(e: any) => setManual(e.target.value.toUpperCase())} autoFocus />
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => setMode('CHOOSER')} className="flex-1">BACK</Button>
+                        <Button onClick={() => connect(manual)} className="flex-1">CONNECT</Button>
+                    </div>
+                </div>
+            )}
+
+            {error && <p className="text-danger text-[10px] text-center uppercase tracking-widest animate-pulse">{error}</p>}
+        </div>
+    );
 };
 
 const GroupCreator = ({ contacts, onCreate }: any) => {
@@ -728,10 +1028,55 @@ const GroupCreator = ({ contacts, onCreate }: any) => {
     return <div className="space-y-4"><Input placeholder="GROUP NAME" value={name} onChange={(e:any) => setName(e.target.value)} /><div className="max-h-60 overflow-y-auto space-y-1">{contacts.filter((c:any) => !c.isGroup).map((c: any) => (<button key={c.id} onClick={() => toggle(c.id)} className={`w-full p-3 flex justify-between rounded border ${ids.includes(c.id) ? 'bg-primary/10 border-primary' : 'bg-transparent border-white/5'}`}>{c.alias} {ids.includes(c.id) && <CheckCircle size={14} />}</button>))}</div><Button onClick={() => onCreate(name, ids)} disabled={!name || ids.length === 0} className="w-full">CREATE</Button></div>;
 };
 
-const ContactSettings = ({ contact, onSave }: any) => {
+const ContactSettings = ({ contact, onSave, onSignal }: any) => {
     const [alias, setAlias] = useState(contact.alias);
     const [del, setDel] = useState(contact.autoDeleteInterval || 0);
-    return <div className="space-y-4"><Input value={alias} onChange={(e:any) => setAlias(e.target.value)} /><select value={del} onChange={(e:any) => setDel(parseInt(e.target.value))} className="w-full bg-black/40 border border-white/10 text-white p-3 rounded"><option value={0}>Never Auto-Delete</option><option value={3600000}>Every Hour</option><option value={86400000}>24 Hours</option></select><Button onClick={() => onSave({ alias, autoDeleteInterval: del })} className="w-full">SAVE</Button></div>;
+    const [confirmClear, setConfirmClear] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                <label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Display Identity</label>
+                <Input value={alias} onChange={(e: any) => setAlias(e.target.value)} placeholder="CONTACT ALIAS" />
+            </div>
+
+            <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                <label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Ephemeral Logic</label>
+                <select value={del} onChange={(e: any) => setDel(parseInt(e.target.value))} className="w-full bg-black/40 border border-white/10 text-white p-3 rounded text-sm">
+                    <option value={0}>NEVER AUTO-PURGE</option>
+                    <option value={3600000}>EVERY HOUR</option>
+                    <option value={86400000}>EVERY 24 HOURS</option>
+                    <option value={604800000}>EVERY 7 DAYS</option>
+                </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+                <Button onClick={() => onSave({ alias, autoDeleteInterval: del })} className="col-span-2">SAVE PROTOCOL UPDATES</Button>
+
+                <Button variant="secondary" className="text-danger hover:bg-danger/10 border-danger/20" onClick={() => setConfirmClear(true)}>
+                    CLEAR CHAT
+                </Button>
+                <Button variant="secondary" className="text-danger hover:bg-danger/10 border-danger/20" onClick={() => setConfirmDelete(true)}>
+                    DISCONNECT
+                </Button>
+            </div>
+
+            <Modal isOpen={confirmClear} onClose={() => setConfirmClear(false)} title="WIPE CONVERSATION?">
+                <div className="space-y-4">
+                    <p className="text-xs text-slate-400">This will wipe all messages on BOTH ends. This action is irreversible.</p>
+                    <Button className="w-full bg-danger hover:bg-danger/80" onClick={() => { onSignal('clear_chat'); setConfirmClear(false); }}>CONFIRM WIPE</Button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={confirmDelete} onClose={() => setConfirmDelete(false)} title="SEVER CONNECTION?">
+                <div className="space-y-4">
+                    <p className="text-xs text-slate-400">This will delete the contact and block all traffic from their identity. BOTH ends will be disconnected.</p>
+                    <Button className="w-full bg-danger hover:bg-danger/80" onClick={() => { onSignal('disconnect'); setConfirmDelete(false); }}>CONFIRM DISCONNECT</Button>
+                </div>
+            </Modal>
+        </div>
+    );
 };
 
 const SyncDeviceModal = ({ wallet, contacts, onClose }: any) => {

@@ -70,4 +70,6 @@ Data at rest in the browser (`IndexedDB`) is fully encrypted.
 
 ---
 
+*For detailed information on the security of notifications and seen receipts, see [SECURITY_PROTOCOLS.md](SECURITY_PROTOCOLS.md).*
+
 *Documentation maintained by [saurav-z](https://github.com/saurav-z)*

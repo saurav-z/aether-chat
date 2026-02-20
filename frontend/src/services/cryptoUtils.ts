@@ -28,11 +28,12 @@ export interface Message {
   text: string;
   file?: { name: string, type: string, size: number, data: string };
   timestamp: number;
-  sender: 'me' | 'them' | string; // 'string' used for Group Member Aliases
+  sender: 'me' | 'them' | string; // 'them' or alias
   senderAlias?: string;
-  replyTo?: string; // ID of message being replied to
-  expiresAt?: number; // Timestamp when this message should vanish
-  type?: 'text' | 'image' | 'system' | 'delete' | 'invite'; 
+  replyTo?: string;
+  expiresAt?: number;
+  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect';
+  status?: 'delivered' | 'seen';
 }
 
 export interface Contact {
