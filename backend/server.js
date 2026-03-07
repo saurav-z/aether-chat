@@ -13,90 +13,86 @@ import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 
 /**
- * AETHER BLIND RELAY v4.1 (Migration & Metadata Update)
- * 
+ * AETHER BLIND RELAY
+ *
  * Modes:
- * 1. RAM (Default): Stores shards in volatile memory. Max privacy.
- * 2. DB (MongoDB): Stores shards on disk with auto-expiration.
+ *   RAM (Default) — volatile memory, max privacy, auto-GC
+ *   DB  (MongoDB)  — durable storage with TTL index auto-expiry
  */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// --- CONFIGURATION ---
 const PORT = process.env.PORT || 3000;
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*"; 
-const MAX_SHARD_SIZE = 16 * 1024 * 1024; // 16MB Cap
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+const MAX_SHARD_SIZE = 16 * 1024 * 1024;
 
-// STORAGE SETTINGS
-const STORAGE_MODE = process.env.STORAGE_MODE || 'RAM'; // 'RAM' or 'DB'
+const STORAGE_MODE = process.env.STORAGE_MODE || 'RAM';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/aether_blind_relay';
-
-// Default TTL: 24 Hours (86400 seconds). 
-// Data is incinerated if not delivered within this window.
-const MESSAGE_TTL = parseInt(process.env.MESSAGE_TTL || '86400'); 
+const MESSAGE_TTL = parseInt(process.env.MESSAGE_TTL || '86400', 10);
 
 console.log(`[AETHER] Starting in ${STORAGE_MODE} mode.`);
-console.log(`[AETHER] Message TTL: ${MESSAGE_TTL} seconds (${(MESSAGE_TTL/3600).toFixed(1)} hours)`);
+console.log(`[AETHER] Message TTL: ${MESSAGE_TTL}s (${(MESSAGE_TTL / 3600).toFixed(1)}h)`);
 
-// --- STORAGE ADAPTERS ---
+// --- RAM Adapter ---
 
-// 1. MEMORY ADAPTER (RAM)
-const memoryStore = new Map(); // Map<shardId, { topicId, data, created }>
+const memoryStore = new Map();
 
 const RamAdapter = {
   init: async () => {
-    // Garbage Collector Loop for RAM Mode
     setInterval(() => {
       const now = Date.now();
+      const limit = MESSAGE_TTL * 1000;
       let deleted = 0;
       for (const [id, shard] of memoryStore.entries()) {
-        if (now - shard.created > (MESSAGE_TTL * 1000)) {
+        if (now - shard.created > limit) {
           memoryStore.delete(id);
           deleted++;
         }
       }
       if (deleted > 0) console.log(`[RAM-GC] Incinerated ${deleted} expired shards.`);
-    }, 60000); // Check every minute
+    }, 60_000);
     console.log('[AETHER] RAM Vault Initialized.');
   },
+
   save: async (topicId, shardId, data) => {
     memoryStore.set(shardId, { topicId, data, created: Date.now() });
   },
+
   get: async (topicId) => {
     const results = [];
     for (const [id, shard] of memoryStore.entries()) {
-      if (shard.topicId === topicId) {
-        results.push({ id, data: shard.data });
-      }
+      if (shard.topicId === topicId) results.push({ id, data: shard.data });
     }
     return results;
   },
-  delete: async (topicId, shardId) => {
+
+  delete: async (_topicId, shardId) => {
     memoryStore.delete(shardId);
-  }
+  },
 };
 
-// 2. DATABASE ADAPTER (MongoDB)
+// --- DB Adapter (MongoDB) ---
+
 let ShardModel;
 
 const DbAdapter = {
   init: async () => {
     try {
       await mongoose.connect(MONGO_URI);
-      
+
       const ShardSchema = new mongoose.Schema({
         topicId: { type: String, required: true, index: true },
         shardId: { type: String, required: true, unique: true },
         data: { type: String, required: true },
-        createdAt: { type: Date, default: Date.now }
+        isChunk: { type: Boolean, default: false },
+        createdAt: { type: Date, default: Date.now },
       });
 
-      // Dynamic TTL Index
-      // Note: If you previously ran this with a different TTL, you must drop the index in Mongo manually:
-      // db.shards.dropIndex("createdAt_1")
+      // Note: if you previously ran with a different TTL, drop the index first:
+      //   db.shards.dropIndex("createdAt_1")
       ShardSchema.index({ createdAt: 1 }, { expireAfterSeconds: MESSAGE_TTL });
-      
+
       ShardModel = mongoose.model('Shard', ShardSchema);
       console.log('[AETHER] Connected to MongoDB Encrypted Store.');
     } catch (err) {
@@ -104,22 +100,25 @@ const DbAdapter = {
       process.exit(1);
     }
   },
-  save: async (topicId, shardId, data) => {
-    await ShardModel.create({ topicId, shardId, data });
+
+  save: async (topicId, shardId, data, isChunk = false) => {
+    await ShardModel.create({ topicId, shardId, data, isChunk });
   },
+
   get: async (topicId) => {
     const shards = await ShardModel.find({ topicId }).select('shardId data -_id').lean();
     return shards.map(s => ({ id: s.shardId, data: s.data }));
   },
-  delete: async (topicId, shardId) => {
-    await ShardModel.deleteOne({ topicId, shardId });
-  }
+
+  delete: async (_topicId, shardId) => {
+    await ShardModel.deleteOne({ shardId });
+  },
 };
 
-// Select Active Adapter
 const Store = STORAGE_MODE === 'DB' ? DbAdapter : RamAdapter;
 
-// --- SERVER SETUP ---
+// --- Server ---
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -127,130 +126,178 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: ALLOWED_ORIGIN }));
 
 const io = new Server(httpServer, {
-  cors: { 
-    origin: ALLOWED_ORIGIN, 
-    methods: ["GET", "POST"],
-    credentials: true
+  cors: {
+    origin: ALLOWED_ORIGIN,
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
   transports: ['websocket'],
-  maxHttpBufferSize: MAX_SHARD_SIZE
+  maxHttpBufferSize: MAX_SHARD_SIZE,
 });
 
-// Redis Pub-Sub Adapter for socket.io
 if (process.env.REDIS_URL) {
   const pubClient = createClient({ url: process.env.REDIS_URL });
   const subClient = pubClient.duplicate();
-  Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
-    io.adapter(createAdapter(pubClient, subClient));
-    console.log('[AETHER] Redis adapter enabled for socket.io');
-  }).catch((err) => {
-    console.error('[AETHER] Redis connection failed:', err);
-  });
+
+  Promise.all([pubClient.connect(), subClient.connect()])
+    .then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('[AETHER] Redis adapter enabled.');
+    })
+    .catch((err) => {
+      console.error('[AETHER] Redis connection failed:', err);
+    });
 }
 
-// --- SIGNALING LOGIC ---
+// --- Helpers ---
+
+function isValidTopicId(topicId) {
+  return typeof topicId === 'string' && /^[a-zA-Z0-9_-]{6,64}$/.test(topicId);
+}
+
+const RATE_LIMIT_WINDOW = 10_000;
+const MAX_SHARDS_PER_WINDOW = 120;  // enough for a full chunk burst
+const MAX_SHARDS_PER_SOCKET = 500;
+const MAX_SHARDS_PER_IP = 2000;
+
+const ipShardCounts = new Map();
+
+// --- Signaling ---
+
 io.on('connection', (socket) => {
-  
-  // --- Rate Limiting and Quotas ---
-  const RATE_LIMIT_WINDOW = 10000; // 10 seconds
-  const MAX_SHARDS_PER_WINDOW = 10; // max 10 deposits per window
-  const MAX_SHARDS_PER_SOCKET = 100; // max 100 shards per socket
-  const MAX_SHARDS_PER_IP = 500; // max 500 shards per IP
   const ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+
   let depositTimestamps = [];
   let socketShardCount = 0;
+
   socket._deliveredShards = new Set();
-  // Global IP quota tracking (in-memory, resets on restart)
-  if (!global._ipShardCounts) global._ipShardCounts = {};
-  if (!global._ipShardCounts[ip]) global._ipShardCounts[ip] = 0;
 
-  // --- TopicId Validation ---
-  function isValidTopicId(topicId) {
-    return typeof topicId === 'string' && /^[a-zA-Z0-9_-]{6,64}$/.test(topicId);
-  }
+  if (!ipShardCounts.has(ip)) ipShardCounts.set(ip, 0);
 
-  // 1. Join & Retrieve (Inbox Check)
   socket.on('join_rendezvous', async (topicId) => {
     if (!isValidTopicId(topicId)) return;
     socket.join(topicId);
+
     try {
       const pending = await Store.get(topicId);
-      if (pending.length > 0) {
-        socket.emit('swarm_shards', pending);
-        // Track delivered shard IDs for this socket
-        pending.forEach(s => socket._deliveredShards.add(s.id));
+      if (pending && pending.length > 0) {
+        const envelope = pending.map(s => {
+          socket._deliveredShards.add(s.id);
+          return { id: s.id, data: s.data, topicId };
+        });
+        socket.emit('swarm_shards', envelope);
       }
     } catch (e) {
-      console.error("Inbox Error:", e);
+      console.error('[AETHER] Inbox error:', e);
     }
   });
 
-  // 2. Deposit (Sender writes to Dead Drop)
+  socket.on('leave_rendezvous', (topicId) => {
+    if (!isValidTopicId(topicId)) return;
+    socket.leave(topicId);
+  });
+
   socket.on('deposit_shard', async ({ topicId, shard, isChunk }) => {
-    if (!isValidTopicId(topicId) || !shard || shard.length > MAX_SHARD_SIZE) return;
-    // Rate limiting
+    if (!isValidTopicId(topicId)) return;
+    if (!shard || typeof shard !== 'string') return;
+    if (shard.length > MAX_SHARD_SIZE) return;
+
     const now = Date.now();
     depositTimestamps = depositTimestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW);
     if (depositTimestamps.length >= MAX_SHARDS_PER_WINDOW) return;
     if (socketShardCount >= MAX_SHARDS_PER_SOCKET) return;
-    if (global._ipShardCounts[ip] >= MAX_SHARDS_PER_IP) return;
+    if ((ipShardCounts.get(ip) || 0) >= MAX_SHARDS_PER_IP) return;
+
     depositTimestamps.push(now);
     socketShardCount++;
-    global._ipShardCounts[ip]++;
+    ipShardCounts.set(ip, (ipShardCounts.get(ip) || 0) + 1);
+
     const shardId = crypto.randomUUID();
+
     try {
-      // 1. Persistence (RAM or DB)
-      await Store.save(topicId, shardId, shard);
-      // 2. Realtime Relay
-      socket.to(topicId).emit('swarm_shards', [{ id: shardId, data: shard, isChunk }]);
+      await Store.save(topicId, shardId, shard, !!isChunk);
+
+      // Track the shard ID on every recipient socket so they can ACK it
+      const roomSockets = await io.in(topicId).fetchSockets();
+      for (const roomSocket of roomSockets) {
+        if (roomSocket.id !== socket.id) {
+          roomSocket._deliveredShards = roomSocket._deliveredShards || new Set();
+          roomSocket._deliveredShards.add(shardId);
+        }
+      }
+
+      socket.to(topicId).emit('swarm_shards', [
+        { id: shardId, data: shard, isChunk: !!isChunk, topicId },
+      ]);
     } catch (e) {
-      console.error("Deposit Error:", e);
+      console.error('[AETHER] Deposit error:', e);
     }
   });
 
-  // 3. Acknowledge & Incinerate (Receiver confirms delivery)
   socket.on('ack_shard', async ({ topicId, shardId }) => {
     if (!isValidTopicId(topicId)) return;
-    // Only allow ack if this socket received the shard
-    if (!socket._deliveredShards.has(shardId)) return;
+    if (typeof shardId !== 'string') return;
+    if (!socket._deliveredShards || !socket._deliveredShards.has(shardId)) return;
+
     try {
       await Store.delete(topicId, shardId);
       socket._deliveredShards.delete(shardId);
     } catch (e) {
-      console.error("Ack Error:", e);
+      console.error('[AETHER] ACK error:', e);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const current = ipShardCounts.get(ip) || 0;
+    const updated = Math.max(0, current - socketShardCount);
+    if (updated === 0) {
+      ipShardCounts.delete(ip);
+    } else {
+      ipShardCounts.set(ip, updated);
     }
   });
 });
 
+// --- REST ---
+
 app.get('/count/:topicId', async (req, res) => {
   const { topicId } = req.params;
-  if (typeof topicId !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(topicId)) {
-    return res.status(400).json({ error: 'invalid topic' });
-  }
+  if (!isValidTopicId(topicId)) return res.status(400).json({ error: 'invalid_topic' });
+
   try {
     const shards = await Store.get(topicId);
     res.json({ count: shards.length });
   } catch (e) {
-    res.status(500).json({ error: 'server error' });
+    console.error('[AETHER] Count error:', e);
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
-app.get('/status', (req, res) => res.json({
-  status: 'online',
-  storage_mode: STORAGE_MODE,
-  ttl_seconds: MESSAGE_TTL
-}));
+app.get('/status', (_req, res) =>
+  res.json({ status: 'online', storage_mode: STORAGE_MODE, ttl_seconds: MESSAGE_TTL }),
+);
 
-// --- HOSTING ---
 const distPath = join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => res.sendFile(join(distPath, 'index.html')));
+  app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
 }
 
-// Start
+// --- Start ---
+
 Store.init().then(() => {
-  httpServer.listen(PORT, () => {
+  const server = httpServer.listen(PORT, () => {
     console.log(`[AETHER] Relay active on port ${PORT}`);
   });
+
+  const shutdown = (signal) => {
+    console.log(`[AETHER] ${signal} — shutting down`);
+    server.close(() => {
+      mongoose.disconnect().finally(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 });
