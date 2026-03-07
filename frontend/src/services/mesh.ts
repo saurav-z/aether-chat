@@ -11,6 +11,98 @@ import { getRendezvousTopic, encryptPayload, decryptPayload } from './cryptoUtil
 
 const CHUNK_SIZE = 16 * 1024; // 16KB Safe Limit
 
+/**
+ * SHARED SOCKET MANAGER
+ * Manages a single WebSocket connection for all MeshNetwork instances
+ */
+class SocketManager {
+  private static instance: SocketManager;
+  private socket: any;
+  private topics: Set<string> = new Set();
+  private handlers: Map<string, (data: string) => void> = new Map();
+  private statusCallbacks: Set<(status: string) => void> = new Set();
+  private topicRefreshInterval: any;
+
+  private constructor() {
+    const connectionOpts = { 
+      transports: ['websocket'],
+      reconnectionAttempts: 20,
+      reconnectionDelay: 1000,
+      path: '/socket.io'
+    };
+
+    const envUrl = import.meta.env.VITE_BACKEND_URL;
+    if (envUrl) {
+      this.socket = io(envUrl, connectionOpts as any);
+    } else if (import.meta.env.DEV) {
+      this.socket = io('http://localhost:3000', connectionOpts as any);
+    } else {
+      this.socket = io(connectionOpts as any);
+    }
+
+    this.init();
+  }
+
+  public static getInstance(): SocketManager {
+    if (!SocketManager.instance) {
+      SocketManager.instance = new SocketManager();
+    }
+    return SocketManager.instance;
+  }
+
+  private init() {
+    this.socket.on('connect', () => {
+      this.statusCallbacks.forEach(cb => cb('SECURE_RELAY_CONNECTED'));
+    });
+
+    this.socket.on('disconnect', () => {
+      this.statusCallbacks.forEach(cb => cb('SIGNAL_LOST_RECONNECTING'));
+    });
+
+    this.socket.on('connect_error', () => {
+      this.statusCallbacks.forEach(cb => cb('CONNECTION_ERROR'));
+    });
+
+    this.socket.on('swarm_shards', async (envelope: { id: string, data: string, topicId: string }[]) => {
+      for (const item of envelope) {
+        const handler = this.handlers.get(item.topicId);
+        if (handler) handler(item.data);
+        this.socket.emit('ack_shard', { topicId: item.topicId, shardId: item.id });
+      }
+    });
+  }
+
+  public register(topic: string, handler: (data: string) => void, onStatus: (s: string) => void) {
+    this.handlers.set(topic, handler);
+    this.statusCallbacks.add(onStatus);
+    if (!this.topics.has(topic)) {
+      this.socket.emit('join_rendezvous', topic);
+      this.topics.add(topic);
+    }
+    if (this.socket.connected) onStatus('SECURE_RELAY_CONNECTED');
+  }
+
+  public unregister(topic: string, onStatus: (s: string) => void) {
+    this.handlers.delete(topic);
+    this.statusCallbacks.delete(onStatus);
+    // Note: We don't necessarily leave the topic if other instances might need it, 
+    // but for simplicity in Aether's 1-to-1 rendezvous, we leave it.
+    this.socket.emit('leave_rendezvous', topic);
+    this.topics.delete(topic);
+  }
+
+  public emit(event: string, data: any) {
+    this.socket.emit(event, data);
+  }
+
+  public disconnect() {
+    if (this.socket) {
+      this.socket.disconnect();
+      SocketManager.instance = undefined as any;
+    }
+  }
+}
+
 interface ChunkPacket {
   type: 'CHUNK';
   msgId: string;
@@ -20,13 +112,14 @@ interface ChunkPacket {
 }
 
 export class MeshNetwork {
-  private socket: any;
+  private socketManager: SocketManager;
   private sharedSecret: string;
   private onMessage: (msg: any) => void;
   private onStatus: (status: string) => void;
   private topicInterval: any;
-  private activeTopics: Set<string> = new Set();
+  private currentTopic: string = '';
 
+  // Reassembly Buffer
   private pendingChunks: Map<string, { count: number, total: number, parts: string[] }> = new Map();
   private processedIds: Set<string> = new Set(); // Dedup
   private activeBroadcasts: Set<string> = new Set(); // For cancellation
@@ -35,69 +128,28 @@ export class MeshNetwork {
     this.sharedSecret = sharedSecret;
     this.onMessage = onMessage;
     this.onStatus = onStatus;
-    
-    const connectionOpts = { 
-      transports: ['websocket'],
-      reconnectionAttempts: 20,
-      reconnectionDelay: 1000,
-      path: '/socket.io'
-    };
-
-    const envUrl = import.meta.env.VITE_BACKEND_URL;
-
-    if (envUrl) {
-        console.log(`[MESH] Connecting to Remote Signal: ${envUrl}`);
-        this.socket = io(envUrl, connectionOpts as any);
-    } else if (import.meta.env.DEV) {
-        console.log(`[MESH] Connecting to Dev Signal: localhost:3000`);
-        this.socket = io('http://localhost:3000', connectionOpts as any);
-    } else {
-        console.log(`[MESH] Connecting to Self-Hosted Signal`);
-        this.socket = io(connectionOpts as any);
-    }
+    this.socketManager = SocketManager.getInstance();
     
     this.init();
   }
 
   private async init() {
-    this.socket.on('connect', () => {
-      this.onStatus('SECURE_RELAY_CONNECTED');
-      this.refreshTopics(); // Immediate join
-    });
+    this.currentTopic = await getRendezvousTopic(this.sharedSecret, 0);
+    this.socketManager.register(
+      this.currentTopic,
+      (data) => this.processIncomingData(data),
+      this.onStatus
+    );
 
-    this.socket.on('disconnect', () => {
-      this.onStatus('SIGNAL_LOST_RECONNECTING');
-    });
-
-    this.socket.on('connect_error', () => {
-        this.onStatus('CONNECTION_ERROR');
-    });
-
-    this.socket.on('swarm_shards', async (envelope: { id: string, data: string }[]) => {
-      // Logic: Receive -> Process -> ACK
-      for (const item of envelope) {
-        await this.processIncomingData(item.data);
-        // CRITICAL: Send ACK to server to confirm delivery so it can be wiped from RAM
-        this.socket.emit('ack_shard', { topicId: await getRendezvousTopic(this.sharedSecret, 0), shardId: item.id });
+    // Topic Rotation logic
+    this.topicInterval = setInterval(async () => {
+      const nextTopic = await getRendezvousTopic(this.sharedSecret, 0);
+      if (nextTopic !== this.currentTopic) {
+        this.socketManager.unregister(this.currentTopic, this.onStatus);
+        this.currentTopic = nextTopic;
+        this.socketManager.register(this.currentTopic, (data) => this.processIncomingData(data), this.onStatus);
       }
-    });
-
-    // Refresh topics every 15s
-    this.topicInterval = setInterval(() => this.refreshTopics(), 15000);
-  }
-
-  private async refreshTopics() {
-    const tCurrent = await getRendezvousTopic(this.sharedSecret, 0);
-    const tNext = await getRendezvousTopic(this.sharedSecret, 60); 
-    
-    if (!this.activeTopics.has(tCurrent)) {
-        this.socket.emit('join_rendezvous', tCurrent);
-        this.activeTopics.add(tCurrent);
-    }
-    if (!this.activeTopics.has(tNext)) {
-        this.socket.emit('join_rendezvous', tNext);
-        this.activeTopics.add(tNext);
-    }
+    }, 15000);
   }
 
   private async processIncomingData(rawData: string) {
@@ -158,10 +210,10 @@ export class MeshNetwork {
     if (!payload.id) payload.id = msgId;
 
     const encryptedFull = await encryptPayload(this.sharedSecret, JSON.stringify(payload));
-    const topic = await getRendezvousTopic(this.sharedSecret, 0);
+    const topic = this.currentTopic;
 
     if (encryptedFull.length < CHUNK_SIZE) {
-      this.socket.emit('deposit_shard', { topicId: topic, shard: encryptedFull });
+      this.socketManager.emit('deposit_shard', { topicId: topic, shard: encryptedFull });
       this.onStatus('SENT_SECURE');
       if (onProgress) onProgress(100);
       return msgId;
@@ -179,7 +231,7 @@ export class MeshNetwork {
 
       const chunk = encryptedFull.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
       const packet: ChunkPacket = { type: 'CHUNK', msgId, i, n: totalChunks, d: chunk };
-      this.socket.emit('deposit_shard', { topicId: topic, shard: JSON.stringify(packet) });
+      this.socketManager.emit('deposit_shard', { topicId: topic, shard: JSON.stringify(packet) });
 
       if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100));
 
@@ -210,6 +262,6 @@ export class MeshNetwork {
 
   public destroy() {
     clearInterval(this.topicInterval);
-    this.socket.disconnect();
+    this.socketManager.unregister(this.currentTopic, this.onStatus);
   }
 }

@@ -32,8 +32,8 @@ export interface Message {
   senderAlias?: string;
   replyTo?: string;
   expiresAt?: number;
-  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect' | 'sync_manifest' | 'sync_delivery';
-  status?: 'delivered' | 'seen';
+  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect' | 'sync_manifest' | 'sync_delivery' | 'ack_receipt';
+  status?: 'delivered' | 'seen' | 'received';
   ids?: string[];
   messages?: Message[];
 }

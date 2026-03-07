@@ -367,8 +367,10 @@ const ChatHistory = ({ messages, onDelete }: any) => {
                                     </div>
                                     {msg.sender === 'me' && (
                                         <div className="flex items-center -ml-0.5">
-                                            <CheckCircle size={8} className={`${msg.status === 'seen' ? 'text-primary' : 'text-slate-600'}`} />
-                                            {msg.status === 'seen' && <CheckCircle size={8} className="text-primary -ml-1" />}
+                                            <CheckCircle size={8} className={`${(msg.status === 'seen' || msg.status === 'received') ? (msg.status === 'seen' ? 'text-primary' : 'text-slate-500') : 'text-slate-700'}`} />
+                                            {(msg.status === 'seen' || msg.status === 'received') && (
+                                                <CheckCircle size={8} className={`${msg.status === 'seen' ? 'text-primary' : 'text-slate-500'} -ml-1`} />
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -481,6 +483,21 @@ const ChatInput = ({ onSend, defaultVanish, pass }: any) => {
 
 // --- MAIN DASHBOARD EXPORT ---
 export default function Dashboard({ wallet, contacts, setContacts, onLogout, meshRefs, installPrompt, onInstall, isSaving }: any) {
+    // API Availability Check (Critical for Safari/iOS)
+    if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-background">
+                <Shield size={48} className="text-danger mb-6 animate-pulse" />
+                <h1 className="text-xl font-bold text-white mb-2 tracking-widest">ENCRYPTION ENGINE ERROR</h1>
+                <p className="text-xs text-slate-400 font-mono leading-relaxed max-w-xs">
+                    This browser does not support the Web Crypto API or is running in an insecure context.
+                    <br /><br />
+                    Please use **Safari 11+**, **Chrome**, or **Firefox** over HTTPS.
+                </p>
+            </div>
+        );
+    }
+
     // Password state for file encryption
     const [pass, setPass] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -509,7 +526,8 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
   // Never requests permission (respects privacy)
     const notify = (title: string, body: string) => {
         // Only show notification if permission is already granted
-        if (Notification.permission === 'granted') {
+        const hasNotification = typeof window !== 'undefined' && 'Notification' in window && (Notification as any).permission === 'granted';
+        if (hasNotification) {
             // Try service worker notification first (better for PWA)
             if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
                 navigator.serviceWorker.controller.postMessage({
@@ -596,6 +614,11 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             return { ...c, messages: c.messages.map(m => (m.id === msg.text || !msg.text) ? { ...m, status: 'seen' } : m) };
         }
 
+        // Handle ACK Receipt
+        if (msg.type === 'ack_receipt') {
+            return { ...c, messages: c.messages.map(m => m.id === msg.text ? { ...m, status: 'received' } : m) };
+        }
+
         // Handle History Sync Manifest
         if (msg.type === 'sync_manifest') {
             const myMessages = c.messages;
@@ -635,11 +658,20 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
          } catch { return c; }
        }
 
-       // DEDUPLICATION LOGIC:
-       // If a message with this ID already exists, do not add it again.
-       if (c.messages.find(m => m.id === msg.id)) {
-           return c;
-       }
+        // DEDUPLICATION LOGIC:
+        // If a message with this ID already exists, do not add it again.
+        if (c.messages.find(m => m.id === msg.id)) {
+            // Even if duplicate, send ACK just in case they missed it
+            if ((msg.type as any) !== 'ack_receipt' && (msg.type as any) !== 'seen' && msg.type !== 'system') {
+                setTimeout(() => sendSignal(contactId, { type: 'ack_receipt', text: msg.id }), 200);
+            }
+            return c;
+        }
+
+        // Auto-emit ACK for processed messages
+        if ((msg.type as any) !== 'ack_receipt' && (msg.type as any) !== 'seen' && msg.type !== 'system' && (msg.type as any) !== 'sync_manifest' && (msg.type as any) !== 'sync_delivery') {
+            setTimeout(() => sendSignal(contactId, { type: 'ack_receipt', text: msg.id }), 200);
+        }
 
        const isCurrent = activeId === contactId;
         if (isCurrent && !document.hidden) {
@@ -736,6 +768,36 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         };
         if (contacts.length > 0) syncSwTopics();
         const interval = setInterval(syncSwTopics, 45000); // Sync every 45s (topics rotate every 1m)
+        return () => clearInterval(interval);
+    }, [contacts]);
+
+    // --- DATA LOSS PREVENTION (RETRY QUEUE) ---
+    useEffect(() => {
+        const retryUnacked = async () => {
+            const now = Date.now();
+            for (const contact of contacts) {
+                // Find messages that were sent > 5s ago but have no ACK ('received' or 'seen')
+                const unacked = contact.messages.filter((m: Message) =>
+                    m.sender === 'me' &&
+                    m.status === 'delivered' &&
+                    m.type !== 'system' &&
+                    (now - m.timestamp) > 5000 &&
+                    (now - (m.timestamp || 0)) < 300000 // Don't retry indefinitely
+                );
+
+                if (unacked.length > 0) {
+                    const mesh = meshRefs.current.get(contact.id);
+                    if (mesh) {
+                        for (const msg of unacked) {
+                            // Silently rebroadcast
+                            mesh.broadcast(msg, undefined, msg.id).catch(() => { });
+                        }
+                    }
+                }
+            }
+        };
+
+        const interval = setInterval(retryUnacked, 10000); // Check every 10s
         return () => clearInterval(interval);
     }, [contacts]);
 
@@ -852,14 +914,14 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
       {/* MODALS */}
           <Modal isOpen={showNotifications} onClose={() => setShowNotifications(false)} title="NETWORK SIGNALS">
               <div className="space-y-4">
-                  {Notification.permission !== 'granted' && (
+                  {(typeof window !== 'undefined' && 'Notification' in window && (Notification as any).permission !== 'granted') && (
                       <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl flex flex-col items-center gap-3 text-center mb-4">
                           <Shield className="text-primary" size={24} />
                           <div className="space-y-1">
                               <div className="text-xs font-bold text-white uppercase tracking-widest">Enable Desktop Alerts</div>
                               <p className="text-[10px] text-slate-400">Receive encrypted signal notifications while Aether is in the background.</p>
                           </div>
-                          <Button onClick={() => Notification.requestPermission()} className="w-full py-2 text-xs">GRANT ACCESS</Button>
+                          <Button onClick={() => (Notification as any).requestPermission()} className="w-full py-2 text-xs">GRANT ACCESS</Button>
                       </div>
                   )}
 
