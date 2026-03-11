@@ -8,7 +8,7 @@ import { MeshNetwork } from '../services/mesh';
 import { SecureStorage } from '../services/storage';
 
 // --- INTRO VIEW ---
-export const IntroView = ({ onStart, onSync, installPrompt, onInstall }: any) => (
+export const IntroView = ({ onStart, onSync, installPrompt, onInstall, version }: any) => (
   <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden h-full safe-pt safe-pb">
     <div className="absolute inset-0 bg-cyber-grid bg-[length:50px_50px] opacity-10 pointer-events-none" />
     <div className="relative z-10 max-w-md w-full text-center space-y-8">
@@ -17,7 +17,7 @@ export const IntroView = ({ onStart, onSync, installPrompt, onInstall }: any) =>
           <Radio className="w-10 h-10 text-primary" />
         </div>
         <h1 className="text-5xl font-sans font-bold text-white tracking-tight mb-2">AETHER</h1>
-        <p className="text-primary font-mono text-xs tracking-[0.3em] uppercase text-slate-400">Sovereign Mesh Protocol</p>
+        <p className="text-primary font-mono text-xs tracking-[0.3em] uppercase text-slate-400">Sovereign Mesh Protocol {version && `v${version}`}</p>
       </div>
 
       <p className="text-slate-400 text-sm font-light leading-relaxed">
@@ -83,33 +83,12 @@ export const Setup2FAView = ({ wallet, onComplete, onCancel }: any) => {
 
 // --- LOGIN VIEW ---
 
-export const LoginView = ({ vault, onSuccess, onReset }: any) => {
+export const LoginView = ({ vault, onSuccess, onReset, version }: any) => {
   const [pass, setPass] = useState('');
   const [status, setStatus] = useState('');
   const [duration, setDuration] = useState(-1); // Default to Session (Browser Open)
   const [attempts, setAttempts] = useState(0);
   const MAX_ATTEMPTS = 15;
-  const [sessionTimer, setSessionTimer] = useState<NodeJS.Timeout | null>(null);
-
-  // On mount, check for persisted session
-  useEffect(() => {
-    const session = localStorage.getItem('aether_session');
-    if (session) {
-      try {
-        const { hash, expiresAt, duration: storedDuration } = JSON.parse(session);
-        if (expiresAt && Date.now() < expiresAt && vault) {
-          // Try to unlock with stored hash (password hash)
-          setStatus('Restoring session...');
-          // For security, do NOT store raw password, only hash
-          // User must re-enter password if hash mismatch
-          // This is a best-effort: if hash matches, auto-unlock
-          // (This assumes unlockWallet is deterministic for same password)
-          // If you want to store the password itself, you must warn user
-          // Here, we just skip and let user login if hash is not available
-        }
-      } catch { }
-    }
-  }, [vault]);
 
   const unlock = async () => {
     if (attempts >= MAX_ATTEMPTS) {
@@ -123,23 +102,6 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
       setStatus('VERIFYING CREDENTIALS...');
       const w = await unlockWallet(vault, pass);
       onSuccess(w, duration);
-      // Session expiry logic
-      if (sessionTimer) clearTimeout(sessionTimer);
-      if (duration > 0) {
-        // Store session info in localStorage
-        const expiresAt = Date.now() + duration * 60000;
-        // For security, store a hash of the password, not the password itself
-        const hash = await hashString(pass);
-        localStorage.setItem('aether_session', JSON.stringify({ hash, expiresAt, duration }));
-        setSessionTimer(setTimeout(async () => {
-          setStatus('Session expired. Vault locked.');
-          await SecureStorage.delete('aether_vault');
-          await SecureStorage.delete('aether_contacts');
-          localStorage.removeItem('aether_session');
-        }, duration * 60000)); // duration in minutes
-      } else {
-        localStorage.removeItem('aether_session');
-      }
     } catch (e: any) {
       setAttempts(a => a + 1);
       if (attempts + 1 >= MAX_ATTEMPTS) {
@@ -159,14 +121,16 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
         <div className="mx-auto w-14 h-14 rounded-full bg-white/5 flex items-center justify-center mb-2">
           <Lock className="w-7 h-7 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold text-white tracking-wide font-sans">UNLOCK VAULT</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-white tracking-wide font-sans">UNLOCK VAULT</h2>
+          <p className="text-[10px] text-primary font-mono mt-1 uppercase tracking-widest">Protocol v{version}</p>
+        </div>
 
         <div className="space-y-4">
           <div>
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Password</p>
             <Input type="password" placeholder="Enter your master password" value={pass} onChange={(e: any) => setPass(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && unlock()} />
           </div>
-          {/* Unique Verification removed */}
           <div>
             <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wide">Session Duration</p>
              <select 
@@ -175,13 +139,12 @@ export const LoginView = ({ vault, onSuccess, onReset }: any) => {
               className="w-full bg-black/40 border border-white/10 rounded p-3 text-xs text-white outline-none font-light cursor-pointer hover:border-white/20 transition-colors"
              >
               <option value={-1}>Session Access (Until tab closes)</option>
-                <option value={0}>Lock on Refresh (Maximum Security)</option>
                 <option value={15}>Keep Unlocked: 15 Minutes</option>
                 <option value={60}>Keep Unlocked: 1 Hour</option>
                 <option value={240}>Keep Unlocked: 4 Hours</option>
              </select>
-            <p className="text-[8px] text-slate-500 text-left mt-2">
-              Session persists data in memory. Closing the tab or browser will lock your vault.
+            <p className="text-[8px] text-slate-500 text-left mt-2 leading-relaxed">
+              Session Access is lost when you close the tab. Longer durations will persist your login even if you close the app.
             </p>
           </div>
         </div>
