@@ -128,9 +128,8 @@ const ChatList = ({ wallet, contacts, activeId, setActiveId, onLogout, setMobile
     )
 };
 
-const VaultView = ({ wallet }: any) => {
+const VaultView = ({ wallet, viewing, setViewing }: any) => {
     const [notes, setNotes] = useState<{ id: string, title: string, content: string, date: number }[]>([]);
-    const [viewing, setViewing] = useState<string | null>(null);
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [saving, setSaving] = useState(false);
@@ -146,13 +145,13 @@ const VaultView = ({ wallet }: any) => {
 
     const saveNote = async () => {
         setSaving(true);
-        const newNote = { id: viewing || crypto.randomUUID(), title: title || 'Untitled', content, date: Date.now() };
-        const updated = viewing ? notes.map(n => n.id === viewing ? newNote : n) : [newNote, ...notes];
+        const newNote = { id: (viewing && viewing !== 'new') ? viewing : crypto.randomUUID(), title: title || 'Untitled', content, date: Date.now() };
+        const updated = (viewing && viewing !== 'new') ? notes.map(n => n.id === viewing ? newNote : n) : [newNote, ...notes];
         setNotes(updated);
         const enc = await encryptStorage(wallet.storageKey, updated);
         await SecureStorage.set('aether_vault_notes', enc);
         setSaving(false);
-        setViewing(null); setTitle(''); setContent('');
+        window.history.back(); setTitle(''); setContent('');
     };
 
     const deleteNote = async (id: string) => {
@@ -167,7 +166,7 @@ const VaultView = ({ wallet }: any) => {
         return (
             <div className="flex-1 flex flex-col h-full bg-black/40 safe-pt safe-pb">
                 <div className="p-4 border-b border-white/10 flex items-center justify-center relative bg-surface/50 backdrop-blur">
-                    <button onClick={() => { setViewing(null); setTitle(''); setContent(''); }} className="absolute left-4 text-slate-400 hover:text-white"><ChevronLeft /></button>
+                    <button onClick={() => window.history.back()} className="absolute left-4 text-slate-400 hover:text-white"><ChevronLeft /></button>
                     <span className="font-mono text-xs tracking-widest text-primary">SECURE RECORD</span>
                     <button onClick={saveNote} className="absolute right-4 text-primary hover:text-white font-bold text-sm" disabled={saving}>{saving ? '...' : 'SAVE'}</button>
                 </div>
@@ -472,6 +471,79 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     const [activeId, setActiveId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>('CHATS');
 
+    const [showInvite, setShowInvite] = useState(false);
+    const [showScan, setShowScan] = useState(false);
+    const [showGroup, setShowGroup] = useState(false);
+    const [showSync, setShowSync] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [vaultViewing, setVaultViewing] = useState<string | null>(null);
+
+    // --- HISTORY SYNC ---
+    useEffect(() => {
+        const handlePopState = (event: PopStateEvent) => {
+            const state = event.state;
+            if (state && state.view === 'dashboard') {
+                setActiveId(state.activeId || null);
+                setActiveTab(state.activeTab || 'CHATS');
+                setShowInvite(!!state.showInvite);
+                setShowScan(!!state.showScan);
+                setShowGroup(!!state.showGroup);
+                setShowSync(!!state.showSync);
+                setShowSettings(!!state.showSettings);
+                setShowNotifications(!!state.showNotifications);
+                setVaultViewing(state.vaultViewing || null);
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
+    const updateHistory = (updates: any) => {
+        const currentState = {
+            view: 'dashboard',
+            activeId, activeTab,
+            showInvite, showScan, showGroup, showSync, showSettings, showNotifications,
+            vaultViewing,
+            ...updates
+        };
+        window.history.pushState(currentState, '');
+    };
+
+    const handleSetVaultViewing = (id: string | null) => {
+        if (id !== vaultViewing) {
+            updateHistory({ vaultViewing: id });
+            setVaultViewing(id);
+        }
+    };
+
+    const handleSetActiveId = (id: string | null) => {
+        if (id !== activeId) {
+            updateHistory({ activeId: id });
+            setActiveId(id);
+        }
+    };
+
+    const handleSetActiveTab = (tab: Tab) => {
+        if (tab !== activeTab) {
+            updateHistory({ activeTab: tab });
+            setActiveTab(tab);
+        }
+    };
+
+    const toggleModal = (modal: string, value: boolean) => {
+        updateHistory({ [modal]: value });
+        switch (modal) {
+            case 'showInvite': setShowInvite(value); break;
+            case 'showScan': setShowScan(value); break;
+            case 'showGroup': setShowGroup(value); break;
+            case 'showSync': setShowSync(value); break;
+            case 'showSettings': setShowSettings(value); break;
+            case 'showNotifications': setShowNotifications(value); break;
+        }
+    };
+
     const activeIdRef = useRef<string | null>(null);
     const activeTabRef = useRef<Tab>('CHATS');
     const contactsRef = useRef<Contact[]>([]);
@@ -480,15 +552,10 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
     useEffect(() => { contactsRef.current = contacts; }, [contacts]);
 
-    const [showInvite, setShowInvite] = useState(false);
-    const [showScan, setShowScan] = useState(false);
-    const [showGroup, setShowGroup] = useState(false);
-    const [showSync, setShowSync] = useState(false);
     const [activeTransfer, setActiveTransfer] = useState<{ id: string, progress: number } | null>(null);
     const [activeInvite, setActiveInvite] = useState<{ code: string, timeLeft: number, secret: string } | null>(null);
     const inviteMeshRef = useRef<any>(null);
     const handshakeLockedRef = useRef<boolean>(false);
-    const [showSettings, setShowSettings] = useState(false);
     const [statusMap, setStatusMap] = useState<Record<string, string>>({});
 
     const notify = (title: string, body: string) => {
@@ -743,9 +810,8 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             if (exists) return curr;
             return [...curr, c];
         });
-        setActiveId(c.id);
-        setShowInvite(false);
-        setShowScan(false);
+        window.history.back();
+        setTimeout(() => handleSetActiveId(c.id), 100);
     };
 
     const startInvite = async () => {
@@ -818,7 +884,6 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         return () => clearInterval(interval);
     }, [contacts]);
 
-    const [showNotifications, setShowNotifications] = useState(false);
     const totalUnread = contacts.reduce((sum: number, c: Contact) => sum + (c.unread || 0), 0);
 
     const clearAllNotifications = () => {
@@ -847,26 +912,26 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             const mesh = meshRefs.current.get(mId);
             if (mesh) mesh.broadcast({ id: crypto.randomUUID(), type: 'invite', text: invitePayload, timestamp: Date.now(), sender: 'me' });
         });
-        setShowGroup(false);
+        window.history.back();
     };
 
     return (
         <div className="flex-1 flex bg-background relative overflow-hidden h-full">
-            <SidebarRail activeTab={activeTab} setActiveTab={setActiveTab} showNotifications={showNotifications} setShowNotifications={setShowNotifications} totalUnread={totalUnread} />
+            <SidebarRail activeTab={activeTab} setActiveTab={handleSetActiveTab} showNotifications={showNotifications} setShowNotifications={(v: boolean) => toggleModal('showNotifications', v)} totalUnread={totalUnread} />
 
             <div className={`${activeId ? 'hidden md:flex' : 'flex'} md:w-80 w-full flex-col h-full bg-surface z-10`}>
                 {activeTab === 'CHATS' && (
                     <ChatList
-                        wallet={wallet} contacts={contacts} activeId={activeId} setActiveId={setActiveId} onLogout={onLogout}
-                        setShowInvite={setShowInvite} setShowScan={setShowScan} setShowGroup={setShowGroup} setShowSync={setShowSync} statusMap={statusMap}
-                        isSaving={isSaving} showNotifications={showNotifications} setShowNotifications={setShowNotifications} totalUnread={totalUnread}
+                        wallet={wallet} contacts={contacts} activeId={activeId} setActiveId={handleSetActiveId} onLogout={onLogout}
+                        setShowInvite={(v: boolean) => toggleModal('showInvite', v)} setShowScan={(v: boolean) => toggleModal('showScan', v)} setShowGroup={(v: boolean) => toggleModal('showGroup', v)} setShowSync={(v: boolean) => toggleModal('showSync', v)} statusMap={statusMap}
+                        isSaving={isSaving} showNotifications={showNotifications} setShowNotifications={(v: boolean) => toggleModal('showNotifications', v)} totalUnread={totalUnread}
                     />
                 )}
-                {activeTab === 'VAULT' && <VaultView wallet={wallet} />}
+                {activeTab === 'VAULT' && <VaultView wallet={wallet} viewing={vaultViewing} setViewing={handleSetVaultViewing} />}
                 {activeTab === 'SETTINGS' && (
                     <div className="p-6 space-y-4 safe-pt">
                         <h2 className="text-xl font-bold tracking-widest text-white mb-6">SETTINGS</h2>
-                        <Button onClick={() => setShowSync(true)} variant="secondary" className="w-full text-xs">SYNC IDENTITY</Button>
+                        <Button onClick={() => toggleModal('showSync', true)} variant="secondary" className="w-full text-xs">SYNC IDENTITY</Button>
                         <Button onClick={onLogout} variant="ghost" className="w-full text-xs text-danger border-danger/20">DISCONNECT</Button>
                         {installPrompt && (
                             <div className="mt-8 p-4 bg-primary/10 rounded-xl border border-primary/30 text-center">
@@ -885,27 +950,27 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             <div className={`flex-1 flex flex-col relative w-full h-full ${!activeId && 'hidden md:flex'}`}>
                 <ChatWindow
                     activeContact={activeContact} messages={activeContact?.messages || []} onSend={sendMessage} onDelete={sendDelete}
-                    status={activeContact ? statusMap[activeContact.id] : ''} onBack={() => setActiveId(null)} setShowSettings={setShowSettings}
+                    status={activeContact ? statusMap[activeContact.id] : ''} onBack={() => window.history.back()} setShowSettings={(v: boolean) => toggleModal('showSettings', v)}
                     pass={pass} activeTransfer={activeTransfer} onCancelTransfer={cancelTransfer}
                 />
             </div>
 
             <div className={`md:hidden fixed bottom-0 left-0 right-0 h-16 bg-surface border-t border-white/5 flex items-center justify-around z-40 safe-pb ${activeId ? 'hidden' : 'flex'}`}>
-                <button onClick={() => setActiveTab('CHATS')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'CHATS' ? 'text-primary' : 'text-slate-500'}`}>
+                <button onClick={() => handleSetActiveTab('CHATS')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'CHATS' ? 'text-primary' : 'text-slate-500'}`}>
                     <MessageSquare size={20} />
                     <span className="text-[9px] font-bold tracking-wider">COMMS</span>
                 </button>
-                <button onClick={() => setActiveTab('VAULT')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'VAULT' ? 'text-primary' : 'text-slate-500'}`}>
+                <button onClick={() => handleSetActiveTab('VAULT')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'VAULT' ? 'text-primary' : 'text-slate-500'}`}>
                     <HardDrive size={20} />
                     <span className="text-[9px] font-bold tracking-wider">VAULT</span>
                 </button>
-                <button onClick={() => setActiveTab('SETTINGS')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'SETTINGS' ? 'text-primary' : 'text-slate-500'}`}>
+                <button onClick={() => handleSetActiveTab('SETTINGS')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'SETTINGS' ? 'text-primary' : 'text-slate-500'}`}>
                     <Layout size={20} />
                     <span className="text-[9px] font-bold tracking-wider">SYSTEM</span>
                 </button>
             </div>
 
-            <Modal isOpen={showNotifications} onClose={() => setShowNotifications(false)} title="NETWORK SIGNALS">
+            <Modal isOpen={showNotifications} onClose={() => window.history.back()} title="NETWORK SIGNALS">
                 <div className="space-y-4">
                     {(typeof window !== 'undefined' && 'Notification' in window && (Notification as any).permission !== 'granted') && (
                         <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl flex flex-col items-center gap-3 text-center mb-4">
@@ -922,7 +987,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                     ) : (
                         <div className="space-y-2">
                             {contacts.filter((c: Contact) => (c.unread || 0) > 0).map((c: Contact) => (
-                                <button key={c.id} onClick={() => { setActiveId(c.id); setShowNotifications(false); }} className="w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/10 transition-colors">
+                                <button key={c.id} onClick={() => { handleSetActiveId(c.id); window.history.back(); }} className="w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/10 transition-colors">
                                     <div className="flex items-center gap-3">
                                         <span className="text-2xl">{c.emoji}</span>
                                         <div className="text-left">
@@ -938,23 +1003,23 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                     )}
                 </div>
             </Modal>
-            <Modal isOpen={showInvite} onClose={() => setShowInvite(false)} title="BURNER INVITATION">
+            <Modal isOpen={showInvite} onClose={() => window.history.back()} title="BURNER INVITATION">
                 <BurnerInvite activeInvite={activeInvite} onStart={startInvite} onCancel={cancelInvite} />
             </Modal>
-            <Modal isOpen={showScan} onClose={() => setShowScan(false)} title="ADD CONTACT">
+            <Modal isOpen={showScan} onClose={() => window.history.back()} title="ADD CONTACT">
                 <BurnerScanner wallet={wallet} onConnect={handleAddContact} />
             </Modal>
-            <Modal isOpen={showGroup} onClose={() => setShowGroup(false)} title="MESH GROUP CREATION">
+            <Modal isOpen={showGroup} onClose={() => window.history.back()} title="MESH GROUP CREATION">
                 <GroupCreator contacts={contacts} onCreate={createGroup} />
             </Modal>
-            <Modal isOpen={showSettings} onClose={() => setShowSettings(false)} title="CONTACT PROTOCOLS">
+            <Modal isOpen={showSettings} onClose={() => window.history.back()} title="CONTACT PROTOCOLS">
                 {activeContact && <ContactSettings contact={activeContact}
-                    onSave={(updates: any) => { setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, ...updates } : c)); setShowSettings(false); }}
-                    onSignal={(type: string) => { sendSignal(activeContact.id, { type }); setShowSettings(false); }}
+                    onSave={(updates: any) => { setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, ...updates } : c)); window.history.back(); }}
+                    onSignal={(type: string) => { sendSignal(activeContact.id, { type }); window.history.back(); }}
                 />}
             </Modal>
-            <Modal isOpen={showSync} onClose={() => setShowSync(false)} title="IDENTITY MIGRATION">
-                <SyncDeviceModal wallet={wallet} contacts={contacts} onClose={() => setShowSync(false)} />
+            <Modal isOpen={showSync} onClose={() => window.history.back()} title="IDENTITY MIGRATION">
+                <SyncDeviceModal wallet={wallet} contacts={contacts} onClose={() => window.history.back()} />
             </Modal>
         </div>
     );

@@ -1,15 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import { generateWallet, lockWallet, unlockWallet, Wallet, EncryptedVault, Contact, encryptStorage, decryptStorage, encryptSession, decryptSession } from './services/cryptoUtils';
 import { SecureStorage } from './services/storage';
 import { GlobalContextMenu } from './components/ui/GlobalContextMenu';
 import { IntroView, Setup2FAView, LoginView, ScanSyncView } from './components/Auth';
 import Dashboard from './components/Dashboard';
-import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { NotificationContainer } from './components/NotificationContainer';
-import { Download, Shield, EyeOff, Lock } from 'lucide-react';
+import { Download, Shield, EyeOff, Lock, RefreshCw } from 'lucide-react';
+import { Button } from './components/ui/Common';
 
-export default function App() {
+function AppContent() {
   const [view, setView] = useState<'intro' | 'setup_2fa' | 'login' | 'dashboard' | 'scan_sync'>('intro');
+  const [lastBackPress, setLastBackPress] = useState(0);
+  const { addNotification } = useNotification();
+
+  // --- PWA UPDATE HANDLER ---
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r: ServiceWorkerRegistration | undefined) {
+      console.log('SW Registered:', r);
+    },
+    onRegisterError(error: any) {
+      console.log('SW registration error', error);
+    },
+  });
+
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [vault, setVault] = useState<EncryptedVault | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -29,13 +47,11 @@ export default function App() {
   // --- PRIVACY CURTAIN & ANTI-SCREENSHOT LOGIC ---
   useEffect(() => {
     const handleVisibilityChange = () => {
-       // If user switches tabs, hide content immediately to prevent OS task-switcher snapshots
        if (document.hidden) setIsBlurred(true);
        else setIsBlurred(false);
     };
 
     const handleBlur = () => {
-       // If user clicks away (e.g. to open a Snipping Tool), hide content
        if (view === 'dashboard' || view === 'login') setIsBlurred(true);
     };
 
@@ -69,33 +85,17 @@ export default function App() {
     }
   };
 
-  // --- PWA & SERVICE WORKER INITIALIZATION ---
-  useEffect(() => {
-    // Register service worker for offline support and privacy-safe notifications
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('[Aether] SW registered'))
-        .catch(err => console.log('[Aether] SW registration failed:', err));
-    }
-  }, []);
-
   // --- INITIALIZATION & SESSION RESTORE ---
   useEffect(() => {
     const init = async () => {
-        // Load Vault from IndexedDB
         const savedVault = await SecureStorage.get('aether_vault');
-        
-        // CHECK BOTH LOCAL STORAGE (TIMED) AND SESSION STORAGE (UNTIL TAB CLOSE)
         const savedSession = sessionStorage.getItem('aether_session') || localStorage.getItem('aether_session');
-        const sessionExpiry = localStorage.getItem('aether_session_exp'); // Only exists for timed sessions
+        const sessionExpiry = localStorage.getItem('aether_session_exp');
 
         if (savedVault) {
             setVault(savedVault); 
-            
             if (savedSession) {
-                // If expiry exists, check it. If not (SessionStorage), assume valid.
                 const isValid = !sessionExpiry || (Date.now() < parseInt(sessionExpiry));
-                
                 if (isValid) {
                     try {
                         const restoredWallet = await decryptSession(savedSession);
@@ -104,15 +104,13 @@ export default function App() {
                             return;
                         }
                     } catch (e) {
-                        console.error("Session corrupted or tamper detected");
+                        console.error("Session corrupted");
                     }
                 } else {
-                    // Expired
                     localStorage.removeItem('aether_session');
                     localStorage.removeItem('aether_session_exp');
                 }
             }
-            
             setView('login');
         }
     };
@@ -130,96 +128,99 @@ export default function App() {
       return () => clearInterval(interval);
   }, [wallet]);
 
-
   // --- STRICT AUTO-DELETE & AUTO-SAVE ---
   useEffect(() => {
-    // CRITICAL: Do not run auto-save unless we are fully logged in and in dashboard.
     if (view !== 'dashboard' || !wallet) return;
-
-    // Pruning Interval: RUNS EVERY 1 SECOND (High Strictness)
     const interval = setInterval(() => {
       setContacts(prev => prev.map(c => {
         if (!c.messages) return c;
         const now = Date.now();
-        // Strict Filter: Remove if expired OR if manually deleted
         const validMsgs = c.messages.filter(m => !m.expiresAt || m.expiresAt > now);
-        
-        // Auto-Delete Interval Logic (e.g. "Clear chat every 1 hour")
         if (c.autoDeleteInterval && c.messages.length > 0) {
             return { ...c, messages: validMsgs.filter(m => m.timestamp > (now - (c.autoDeleteInterval || 0))) };
         }
         return { ...c, messages: validMsgs };
       }));
-    }, 1000); // 1 Second Interval for Instant TTL Enforcement
+    }, 1000);
 
-    // Save Encrypted State
     const saveEncrypted = async () => {
         setIsSaving(true);
         const encrypted = await encryptStorage(wallet.storageKey, contacts);
         await SecureStorage.set('aether_contacts', encrypted);
-        
-        // Synthetic delay for UX (so user sees the 'Encrypting' badge briefly)
         setTimeout(() => setIsSaving(false), 500);
     };
-    
-    // Debounce saving
     const saveTimer = setTimeout(saveEncrypted, 1000);
-    
     return () => {
         clearInterval(interval);
         clearTimeout(saveTimer);
     };
   }, [contacts, wallet, view]);
 
-  // --- HANDLERS ---
-  
+  // --- HISTORY MANAGEMENT ---
+  useEffect(() => {
+    window.history.replaceState({ view: 'intro' }, '');
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state;
+      if (state && state.view) {
+        setView(state.view);
+      } else if (!state || !state.view) {
+        if (view === 'intro' || view === 'login' || (view === 'dashboard' && !state?.activeId)) {
+          const now = Date.now();
+          if (now - lastBackPress < 2000) {
+            // Exit handled by browser
+          } else {
+            setLastBackPress(now);
+            window.history.pushState({ view }, ''); 
+            addNotification("Press back again to exit Aether", 'info', { duration: 3000 });
+          }
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view, lastBackPress, addNotification]);
+
+  const navigateTo = (newView: typeof view) => {
+    if (newView !== view) {
+      window.history.pushState({ view: newView }, '');
+      setView(newView);
+    }
+  };
+
   const handleLoginSuccess = async (w: Wallet, duration: number, isRestoring = false) => { 
     setWallet(w); 
-    
-    // Create Session
     if (!isRestoring) {
         const sessionBlob = await encryptSession(w);
-        
         if (duration === -1) {
-             // Session Only (Until Close)
              sessionStorage.setItem('aether_session', sessionBlob);
-             localStorage.removeItem('aether_session'); // Clean up old if any
+             localStorage.removeItem('aether_session');
              localStorage.removeItem('aether_session_exp');
              setLockTime(null);
         } else if (duration > 0) {
-             // Timed
              const expiry = Date.now() + (duration * 60 * 1000);
              localStorage.setItem('aether_session', sessionBlob);
              localStorage.setItem('aether_session_exp', expiry.toString());
              sessionStorage.removeItem('aether_session');
              setLockTime(expiry);
         } else {
-             // Lock on Refresh (High Security)
              sessionStorage.removeItem('aether_session');
              localStorage.removeItem('aether_session');
              localStorage.removeItem('aether_session_exp');
         }
     }
-
-    // --- DECRYPTION PHASE ---
     setIsDecrypting(true);
-    
-    // Synthetic delay to prevent flickering and show the secure loading state
     if (isRestoring) await new Promise(r => setTimeout(r, 800));
-
     try {
         const encryptedContacts = await SecureStorage.get('aether_contacts');
         if (encryptedContacts) {
             const decrypted = await decryptStorage(w.storageKey, encryptedContacts);
-            if (decrypted) {
-                setContacts(decrypted);
-            }
+            if (decrypted) setContacts(decrypted);
         }
     } catch (e) {
-        console.error("Critical Storage Load Failure", e);
+        console.error("Storage Load Failure", e);
     } finally {
         setIsDecrypting(false);
-        setView('dashboard'); 
+        navigateTo('dashboard'); 
     }
   };
 
@@ -231,11 +232,11 @@ export default function App() {
       sessionStorage.removeItem('aether_session');
       meshRefs.current.forEach((mesh: any) => mesh.destroy());
       meshRefs.current.clear();
-      setView('login');
+      navigateTo('login');
   };
 
   const handleNuke = async () => {
-    if (window.confirm("CRITICAL WARNING: This will permanently erase your vault, keys, and all messages from this device. Proceed?")) {
+    if (window.confirm("CRITICAL WARNING: This will permanently erase your vault, keys, and all messages. Proceed?")) {
         await SecureStorage.clear();
         localStorage.clear();
         sessionStorage.clear();
@@ -243,7 +244,6 @@ export default function App() {
     }
   };
 
-  // --- VIEW ROUTING ---
   const renderView = () => {
     if (isDecrypting) {
         return (
@@ -253,27 +253,26 @@ export default function App() {
             </div>
         );
     }
-
     switch (view) {
       case 'intro':
         return <IntroView 
-            onStart={() => generateWallet().then(w => { setTempWallet(w); setView('setup_2fa'); })} 
-            onSync={() => setView('scan_sync')} 
+            onStart={() => generateWallet().then(w => { setTempWallet(w); navigateTo('setup_2fa'); })} 
+            onSync={() => navigateTo('scan_sync')} 
             installPrompt={deferredPrompt}
             onInstall={handleInstall}
         />;
       case 'scan_sync':
-        return <ScanSyncView onBack={() => setView('intro')} />;
+        return <ScanSyncView onBack={() => window.history.back()} />;
       case 'setup_2fa':
         return tempWallet && <Setup2FAView 
             wallet={tempWallet} 
             onComplete={(w: Wallet, p: string) => { 
               lockWallet(w, p).then(v => { 
-                SecureStorage.set('aether_vault', v); // Save to IDB
-                setVault(v); setWallet(w); setView('dashboard'); 
+                SecureStorage.set('aether_vault', v);
+                setVault(v); setWallet(w); navigateTo('dashboard'); 
               }); 
             }} 
-            onCancel={() => setView('intro')} 
+            onCancel={() => window.history.back()} 
         />;
       case 'login':
         return vault && <LoginView vault={vault} onSuccess={handleLoginSuccess} onReset={handleNuke} />;
@@ -298,34 +297,70 @@ export default function App() {
   };
 
   return (
-    <NotificationProvider>
-      <>
-        {/* PRIVACY CURTAIN OVERLAY */}
-        {isBlurred && (
-          <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6">
-            <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center animate-pulse">
-              <EyeOff size={40} className="text-primary" />
+    <>
+      {isBlurred && (
+        <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6">
+          <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center animate-pulse">
+            <EyeOff size={40} className="text-primary" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-white tracking-[0.5em] font-sans">AETHER</h1>
+            <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Secure Session Paused</p>
+          </div>
+          <div className="px-4 py-2 border border-white/10 rounded bg-white/5 text-[10px] text-slate-500 font-mono">
+            FOCUS WINDOW TO RESUME
+          </div>
+        </div>
+      )}
+      <NotificationContainer />
+
+      {/* PWA UPDATE PROMPT */}
+      {needRefresh && (
+        <div className="fixed bottom-20 left-4 right-4 md:left-auto md:right-8 md:bottom-8 z-[1000] animate-in slide-in-from-bottom duration-500">
+          <div className="bg-[#1a1a1f]/90 backdrop-blur-xl border border-primary/30 p-5 rounded-2xl shadow-[0_0_30px_rgba(0,243,255,0.15)] flex flex-col gap-4 max-w-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <RefreshCw size={20} className="text-primary animate-spin-slow" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white tracking-wider">PROTOCOL UPDATE</h3>
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5">NEW VERSION OF AETHER IS READY</p>
+              </div>
             </div>
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-white tracking-[0.5em] font-sans">AETHER</h1>
-              <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Secure Session Paused</p>
-            </div>
-            <div className="px-4 py-2 border border-white/10 rounded bg-white/5 text-[10px] text-slate-500 font-mono">
-              FOCUS WINDOW TO RESUME
+            <div className="flex gap-2">
+              <Button 
+                variant="secondary" 
+                onClick={() => setNeedRefresh(false)} 
+                className="flex-1 py-2 text-[10px] border-white/5 hover:bg-white/5"
+              >
+                DISMISS
+              </Button>
+              <Button 
+                onClick={() => updateServiceWorker(true)} 
+                className="flex-1 py-2 text-[10px] shadow-[0_0_15px_rgba(0,243,255,0.3)]"
+              >
+                UPDATE NOW
+              </Button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        <NotificationContainer />
+      <GlobalContextMenu
+        onLogout={handleLogout}
+        onClearActiveChat={() => { }}
+        onNuke={handleNuke}
+        activeContactId={null}
+      />
+      <div className="h-full w-full flex flex-col">{renderView()}</div>
+    </>
+  );
+}
 
-        <GlobalContextMenu
-          onLogout={handleLogout}
-          onClearActiveChat={() => { }}
-          onNuke={handleNuke}
-          activeContactId={null}
-        />
-        <div className="h-full w-full flex flex-col">{renderView()}</div>
-      </>
+export default function App() {
+  return (
+    <NotificationProvider>
+      <AppContent />
     </NotificationProvider>
   );
 }
