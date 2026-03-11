@@ -201,6 +201,24 @@ function AppContent() {
     }
   };
 
+  const activeContactId = location.pathname.match(/\/dashboard\/chat\/([^/]+)/)?.[1] || null;
+
+  const handleClearLocal = () => {
+    if (activeContactId && window.confirm("Clear all local messages in this channel?")) {
+        setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, messages: [], unread: 0 } : c));
+    }
+  };
+
+  const handleClearBothSides = async () => {
+    if (activeContactId && window.confirm("DANGEROUS: Clear history on BOTH devices?")) {
+        const mesh = meshRefs.current.get(activeContactId);
+        if (mesh) {
+            await mesh.broadcast({ id: crypto.randomUUID(), timestamp: Date.now(), sender: 'me', type: 'clear_chat_request' });
+        }
+        setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, pendingClear: true } : c));
+    }
+  };
+
   if (!isInitialized) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center space-y-4 bg-black">
@@ -257,9 +275,10 @@ function AppContent() {
 
       <GlobalContextMenu
         onLogout={handleLogout}
-        onClearActiveChat={() => { }}
+        onClearLocal={handleClearLocal}
+        onClearBothSides={handleClearBothSides}
         onNuke={handleNuke}
-        activeContactId={null}
+        activeContactId={activeContactId}
       />
       
       <Routes>
@@ -300,9 +319,15 @@ function AppContent() {
                         isSaving={isSaving} version={APP_VERSION}
                     />
                     {lockTime && (
-                        <div className="fixed top-0 left-1/2 -translate-x-1/2 bg-primary/10 backdrop-blur border-b border-l border-r border-primary/30 text-primary text-[9px] px-3 py-1 rounded-b-lg font-mono z-50 flex items-center gap-1.5">
-                            <LockIcon size={8} />
-                            UNLOCKED UNTIL: {new Date(lockTime).toLocaleTimeString()}
+                        <div 
+                          onClick={() => {
+                            if (window.confirm("Terminate secure session and lock vault?")) handleLogout();
+                          }}
+                          className="fixed top-0 left-1/2 -translate-x-1/2 bg-primary/10 hover:bg-danger/20 hover:text-danger cursor-pointer transition-all backdrop-blur border-b border-l border-r border-primary/30 hover:border-danger/30 text-primary text-[9px] px-3 py-1 rounded-b-lg font-mono z-[60] flex items-center gap-1.5 group"
+                        >
+                            <LockIcon size={8} className="group-hover:animate-pulse" />
+                            <span className="group-hover:hidden">UNLOCKED UNTIL: {new Date(lockTime).toLocaleTimeString()}</span>
+                            <span className="hidden group-hover:inline">LOCK SESSION NOW</span>
                         </div>
                     )}
                 </>

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from 'react-router-dom';
 import QRCode from 'react-qr-code';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import {
     Send, Paperclip, Activity, File, Download,
-    Settings, X, Share2, Trash2, UserPlus, Shield, Lock, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, Timer, CheckCircle, Copy
+    Settings, X, Share2, Trash2, UserPlus, Shield, Lock, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, Timer, CheckCircle, Copy, QrCode as QrCodeIcon, ScanLine, ShieldAlert, RefreshCw
 } from 'lucide-react';
 import { Button, Input, Modal } from './ui/Common';
 import { Contact, Message, Wallet, computeSharedSecret, hashString, hashBuffer, generateGroupKey, getRendezvousTopic, encryptStorage, decryptStorage } from '../services/cryptoUtils';
@@ -116,7 +117,12 @@ const ChatList = ({ wallet, contacts, activeId, setShowInvite, setShowScan, stat
                         <div className="flex-1 text-left min-w-0">
                             <div className="flex justify-between items-center">
                                 <span className={`text-sm font-bold truncate ${activeId === c.id ? 'text-primary' : 'text-slate-300'}`}>{c.alias}</span>
-                                {c.unread > 0 && (
+                                {c.pendingClear && (
+                                    <span className="flex items-center gap-1 text-[8px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-mono animate-pulse">
+                                        <Timer size={8} /> CLEARING...
+                                    </span>
+                                )}
+                                {c.unread > 0 && !c.pendingClear && (
                                     <span className="flex items-center gap-1">
                                         <span className="text-[10px] bg-primary text-black px-1.5 rounded-full font-bold">{c.unread}</span>
                                         <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(0,243,255,0.5)]" />
@@ -135,26 +141,16 @@ const ChatList = ({ wallet, contacts, activeId, setShowInvite, setShowScan, stat
     )
 };
 
-const VaultView = ({ wallet }: any) => {
+const VaultView = ({ wallet, notes, setNotes }: any) => {
     const navigate = useNavigate();
     const { id: viewing } = useParams();
-    const [notes, setNotes] = useState<{ id: string, title: string, content: string, date: number }[]>([]);
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        SecureStorage.get('aether_vault_notes').then(async (enc) => {
-            if (enc && wallet) {
-                const decrypted = await decryptStorage(wallet.storageKey, enc);
-                setNotes(decrypted || []);
-            }
-        });
-    }, []);
-
-    useEffect(() => {
         if (viewing && viewing !== 'new') {
-            const note = notes.find(n => n.id === viewing);
+            const note = notes.find((n: any) => n.id === viewing);
             if (note) {
                 setTitle(note.title);
                 setContent(note.content);
@@ -168,55 +164,61 @@ const VaultView = ({ wallet }: any) => {
     const saveNote = async () => {
         setSaving(true);
         const newNote = { id: (viewing && viewing !== 'new') ? viewing : crypto.randomUUID(), title: title || 'Untitled', content, date: Date.now() };
-        const updated = (viewing && viewing !== 'new') ? notes.map(n => n.id === viewing ? newNote : n) : [newNote, ...notes];
-        setNotes(updated);
+        const updated = (viewing && viewing !== 'new') ? notes.map((n: any) => n.id === viewing ? newNote : n) : [newNote, ...notes];
+        
         const enc = await encryptStorage(wallet.storageKey, updated);
         await SecureStorage.set('aether_vault_notes', enc);
+        setNotes(updated);
         setSaving(false);
         navigate('/dashboard/vault');
     };
 
     const deleteNote = async (id: string) => {
         if (!confirm("Destroy this record?")) return;
-        const updated = notes.filter(n => n.id !== id);
-        setNotes(updated);
+        const updated = notes.filter((n: any) => n.id !== id);
         const enc = await encryptStorage(wallet.storageKey, updated);
         await SecureStorage.set('aether_vault_notes', enc);
+        setNotes(updated);
     };
 
     if (viewing) {
         return (
-            <div className="flex-1 flex flex-col h-full bg-black/40 safe-pt safe-pb">
+            <div className="flex-1 flex flex-col h-full bg-surface safe-pt safe-pb z-50">
                 <div className="p-4 border-b border-white/10 flex items-center justify-center relative bg-surface/50 backdrop-blur">
-                    <button onClick={() => navigate(-1)} className="absolute left-4 text-slate-400 hover:text-white"><ChevronLeft /></button>
+                    <button onClick={() => navigate('/dashboard/vault')} className="absolute left-4 text-slate-400 hover:text-white"><ChevronLeft /></button>
                     <span className="font-mono text-xs tracking-widest text-primary">SECURE RECORD</span>
                     <button onClick={saveNote} className="absolute right-4 text-primary hover:text-white font-bold text-sm" disabled={saving}>{saving ? '...' : 'SAVE'}</button>
                 </div>
-                <div className="p-4 flex-1 flex flex-col gap-4">
-                    <input className="bg-transparent text-xl font-bold text-white placeholder-slate-600 outline-none" placeholder="Subject / Title" value={title} onChange={e => setTitle(e.target.value)} />
-                    <textarea className="flex-1 bg-transparent text-sm font-mono text-slate-300 resize-none outline-none leading-relaxed" placeholder="Enter secure data..." value={content} onChange={e => setContent(e.target.value)} />
+                <div className="p-6 flex-1 flex flex-col gap-6 max-w-4xl mx-auto w-full">
+                    <input className="bg-transparent text-3xl font-bold text-white placeholder-slate-700 outline-none border-b border-white/5 pb-4 focus:border-primary/30 transition-colors" placeholder="Subject / Title" value={title} onChange={e => setTitle(e.target.value)} />
+                    <textarea className="flex-1 bg-transparent text-lg font-mono text-slate-300 resize-none outline-none leading-relaxed custom-scrollbar" placeholder="Enter secure data..." value={content} onChange={e => setContent(e.target.value)} />
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="flex-1 flex flex-col h-full bg-black/40 safe-pt safe-pb">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-surface/50 backdrop-blur">
+        <div className="flex-1 flex flex-col h-full bg-surface border-r border-white/5 safe-pt">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between h-16 bg-black/20 shrink-0">
                 <div className="flex items-center gap-2">
                     <HardDrive size={18} className="text-primary" />
-                    <span className="font-bold text-lg">Vault</span>
+                    <span className="font-bold text-sm uppercase tracking-widest text-slate-300">Vault</span>
                 </div>
-                <button onClick={() => navigate('/dashboard/vault/new')} className="bg-white/10 p-2 rounded-full text-primary hover:bg-white/20"><Plus size={20} /></button>
+                <button onClick={() => navigate('/dashboard/vault/new')} className="text-primary hover:scale-110 transition-transform"><Plus size={20} /></button>
             </div>
-            <div className="p-4 grid grid-cols-2 gap-3 overflow-y-auto">
-                {notes.map(n => (
-                    <div key={n.id} onClick={() => navigate(`/dashboard/vault/${n.id}`)} className="bg-white/5 border border-white/5 p-4 rounded-xl hover:border-primary/30 transition-all cursor-pointer relative group aspect-square flex flex-col">
-                        <div className="font-bold text-sm truncate mb-2">{n.title}</div>
-                        <div className="text-[10px] text-slate-500 font-mono flex-1 overflow-hidden">{n.content.substring(0, 100)}...</div>
-                        <div className="mt-2 flex justify-between items-end">
-                            <span className="text-[8px] text-slate-600">{new Date(n.date).toLocaleDateString()}</span>
-                            <button onClick={(e) => { e.stopPropagation(); deleteNote(n.id); }} className="text-slate-600 hover:text-danger"><Trash2 size={12} /></button>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                {notes.length === 0 && (
+                    <div className="p-12 text-center opacity-20 text-[10px] font-mono tracking-[0.2em]">VAULT EMPTY</div>
+                )}
+                {notes.map((n: any) => (
+                    <div key={n.id} onClick={() => navigate(`/dashboard/vault/${n.id}`)} className="bg-white/5 border border-white/5 p-4 rounded-xl hover:border-primary/30 hover:bg-white/10 transition-all cursor-pointer group">
+                        <div className="flex justify-between items-start mb-1">
+                            <div className="font-bold text-sm truncate text-slate-200">{n.title}</div>
+                            <button onClick={(e) => { e.stopPropagation(); deleteNote(n.id); }} className="text-slate-600 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono line-clamp-2 leading-relaxed">{n.content}</div>
+                        <div className="mt-3 text-[8px] text-slate-700 font-mono uppercase tracking-tighter">
+                            Record ID: {n.id.substring(0,8)} • {new Date(n.date).toLocaleDateString()}
                         </div>
                     </div>
                 ))}
@@ -323,16 +325,36 @@ const Linkify = ({ text }: { text: string }) => {
 
 const ChatHistory = ({ messages, onDelete }: any) => {
     const bottomRef = useRef<HTMLDivElement>(null);
-    useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
+    const [limit, setLimit] = useState(50);
+    
+    useEffect(() => {
+        if (limit === 50) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, limit]);
 
     const getReplyText = (id: string) => {
         const m = messages.find((x: any) => x.id === id);
         return m ? (m.text.substring(0, 30) + (m.text.length > 30 ? '...' : '')) : 'Deleted Message';
     };
 
+    const visibleMessages = useMemo(() => {
+        return messages.slice(-limit);
+    }, [messages, limit]);
+
+    const hasMore = messages.length > limit;
+
     return (
         <>
-            {messages.map((msg: Message) => {
+            {hasMore && (
+                <div className="flex justify-center pb-4">
+                    <button 
+                        onClick={() => setLimit(prev => prev + 50)}
+                        className="text-[10px] font-mono text-primary bg-primary/5 border border-primary/20 px-4 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
+                    >
+                        LOAD OLDER MESSAGES ({messages.length - limit} REMAINING)
+                    </button>
+                </div>
+            )}
+            {visibleMessages.map((msg: Message) => {
                 if (msg.type === 'system') return (
                     <div key={msg.id} className="text-center text-[9px] text-slate-600 font-mono my-4 uppercase tracking-widest border-t border-white/5 pt-2 w-3/4 mx-auto">
                         {msg.text}
@@ -478,7 +500,11 @@ const ChatInput = ({ onSend, defaultVanish }: any) => {
 export default function Dashboard({ wallet, contacts, setContacts, onLogout, meshRefs, installPrompt, onInstall, isSaving, version }: any) {
     const navigate = useNavigate();
     const location = useLocation();
-    const { id: activeId } = useParams();
+    
+    const activeId = useMemo(() => {
+        const match = location.pathname.match(/\/dashboard\/chat\/([^/]+)/);
+        return match ? match[1] : undefined;
+    }, [location.pathname]);
     
     const activeTab = useMemo<Tab>(() => {
         if (location.pathname.startsWith('/dashboard/vault')) return 'VAULT';
@@ -492,6 +518,156 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     const [showSync, setShowSync] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
+
+    // Vault State
+    const [notes, setNotes] = useState<{ id: string, title: string, content: string, date: number }[]>([]);
+    useEffect(() => {
+        SecureStorage.get('aether_vault_notes').then(async (enc) => {
+            if (enc && wallet) {
+                const decrypted = await decryptStorage(wallet.storageKey, enc);
+                setNotes(decrypted || []);
+            }
+        });
+    }, [wallet]);
+
+    // Alias Editing State
+    const [editAlias, setEditAlias] = useState('');
+
+    // Pull to Refresh State
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [pullDistance, setPullDistance] = useState(0);
+    const [touchStart, setTouchStart] = useState(0);
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        // Force sync for all contacts
+        contacts.forEach((c: Contact) => syncHistory(c.id));
+        setTimeout(() => {
+            setIsRefreshing(false);
+            setPullDistance(0);
+        }, 1500);
+    };
+
+    // Service Worker Sync for Background Notifications
+    useEffect(() => {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            const syncTopics = async () => {
+                const topics = await Promise.all(contacts.map((c: Contact) => getRendezvousTopic(c.sharedSecret, 0)));
+                navigator.serviceWorker.controller?.postMessage({
+                    type: 'SYNC_TOPICS',
+                    topics,
+                    url: (import.meta as any).env?.VITE_BACKEND_URL || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:3000' : window.location.origin)
+                });
+            };
+            syncTopics();
+        }
+    }, [contacts]);
+    
+    // Peer Handshake Logic for the person SCANNING
+    const [scanStatus, setScanStatus] = useState('IDLE');
+    const [manualCode, setManualCode] = useState('');
+    
+    // Identity Sync Logic
+    const [syncStatus, setSyncStatus] = useState('IDLE');
+    const [syncCode, setSyncCode] = useState('');
+
+    const startSync = async () => {
+        setSyncStatus('GENERATING CODE...');
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 12; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+            if ((i + 1) % 4 === 0 && i !== 11) code += '-';
+        }
+        setSyncCode(code);
+        setSyncStatus('PREPARING PAYLOAD...');
+        
+        const secret = await hashString("SYNC_" + code);
+        const mesh = new MeshNetwork(secret, () => {}, () => {});
+        
+        const vault = await SecureStorage.get('aether_vault');
+        const encryptedContacts = await SecureStorage.get('aether_contacts');
+        
+        setSyncStatus('BROADCASTING VAULT...');
+        await mesh.broadcast({ 
+            type: 'SYNC_PAYLOAD', 
+            data: { vault, contacts: encryptedContacts } 
+        });
+        setSyncStatus('AWAITING PICKUP...');
+    };
+
+    const initiateHandshake = async (code: string) => {
+        try {
+            setScanStatus('ESTABLISHING CONNECTION...');
+            const secret = await hashString("BURNER_" + normalizeId(code));
+            
+            const mesh = new MeshNetwork(secret, async (msg: any) => {
+                if (msg.type === 'HANDSHAKE_REPLY') {
+                    setScanStatus('COMPUTING KEYS...');
+                    const sharedSecret = await computeSharedSecret(wallet.privateKey, msg.publicKeyRaw);
+                    const peerId = await hashString(msg.publicKeyRaw);
+                    
+                    // Send ACK
+                    await mesh.broadcast({ type: 'HANDSHAKE_ACK' });
+                    
+                    handleAddContact({ 
+                        id: peerId, 
+                        alias: msg.alias || 'Peer', 
+                        emoji: msg.emoji || '👤', 
+                        sharedSecret, 
+                        messages: [], 
+                        unread: 0 
+                    });
+                    mesh.destroy();
+                    setScanStatus('IDLE');
+                }
+            }, () => {});
+
+            // Broadcast Handshake
+            await mesh.broadcast({ 
+                type: 'HANDSHAKE', 
+                publicKeyRaw: wallet.publicKeyRaw, 
+                alias: wallet.alias || 'Anonymous', 
+                emoji: wallet.emoji || '👤' 
+            });
+            setScanStatus('AWAITING PEER RESPONSE...');
+        } catch (e) {
+            console.error("Handshake Failed:", e);
+            setScanStatus('HANDSHAKE FAILED');
+        }
+    };
+
+    useEffect(() => {
+        if (showScan && scanStatus === 'IDLE') {
+            let scanner: Html5QrcodeScanner | null = null;
+            const timer = setTimeout(() => {
+                const el = document.getElementById("peer-scanner");
+                if (el) {
+                    scanner = new Html5QrcodeScanner("peer-scanner", { fps: 10, qrbox: 250 }, false);
+                    scanner.render((t) => {
+                        try {
+                            const d = JSON.parse(t);
+                            if (d.type === 'AETHER_SYNC' && d.code) {
+                                scanner?.clear();
+                                initiateHandshake(d.code);
+                            }
+                        } catch { 
+                            if (t.length >= 12) {
+                                scanner?.clear();
+                                initiateHandshake(t);
+                            }
+                        }
+                    }, () => { });
+                }
+            }, 100);
+            return () => { 
+                if (scanner) {
+                    try { scanner.clear() } catch (e) { console.warn(e) }
+                }
+                clearTimeout(timer); 
+            };
+        }
+    }, [showScan, scanStatus]);
 
     const contactsRef = useRef<Contact[]>([]);
     useEffect(() => { contactsRef.current = contacts; }, [contacts]);
@@ -558,8 +734,15 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     const handleIncomingMessage = (contactId: string, msg: Message) => {
         setContacts((prev: Contact[]) => prev.map(c => {
             if (c.id !== contactId) return c;
-            if (msg.type === 'delete') return { ...c, messages: c.messages.filter(m => m.id !== msg.text) };
+            if (msg.type === 'clear_chat_request') {
+                sendSignal(contactId, { type: 'clear_chat_ack' });
+                return { ...c, messages: [], unread: 0 };
+            }
+            if (msg.type === 'clear_chat_ack') {
+                return { ...c, messages: [], unread: 0, pendingClear: false };
+            }
             if (msg.type === 'clear_chat') return { ...c, messages: [], unread: 0 };
+            if (msg.type === 'delete') return { ...c, messages: c.messages.filter(m => m.id !== msg.text) };
             if (msg.type === 'disconnect') {
                 setTimeout(() => {
                     setContacts((curr: Contact[]) => curr.filter(contact => contact.id !== contactId));
@@ -627,6 +810,18 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     }, [activeId]);
 
     const activeContact = useMemo(() => contacts.find((c: Contact) => c.id === activeId), [contacts, activeId]);
+
+    useEffect(() => {
+        if (showSettings && activeContact) {
+            setEditAlias(activeContact.alias);
+        }
+    }, [showSettings, activeContact]);
+
+    const saveAlias = () => {
+        if (!activeContact || !editAlias.trim()) return;
+        setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, alias: editAlias.trim() } : c));
+        setShowSettings(false);
+    };
 
     const sendMessage = async (txt: string, file: any, replyTo?: string, vanishTime?: number) => {
         if (!activeContact) return;
@@ -753,7 +948,35 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     };
 
     return (
-        <div className="flex-1 flex bg-background relative overflow-hidden h-full">
+        <div 
+            className="flex-1 flex bg-background relative overflow-hidden h-full touch-none"
+            onTouchStart={(e) => setTouchStart(e.touches[0].clientY)}
+            onTouchMove={(e) => {
+                const dist = e.touches[0].clientY - touchStart;
+                if (dist > 0 && dist < 120 && window.scrollY === 0) {
+                    setPullDistance(dist);
+                }
+            }}
+            onTouchEnd={() => {
+                if (pullDistance > 80) handleRefresh();
+                else setPullDistance(0);
+            }}
+        >
+            {/* Pull to Refresh Indicator */}
+            {(pullDistance > 0 || isRefreshing) && (
+                <div 
+                    className="absolute top-0 left-0 right-0 z-[100] flex justify-center pointer-events-none transition-transform duration-200"
+                    style={{ transform: `translateY(${Math.min(pullDistance, 80)}px)` }}
+                >
+                    <div className="bg-surface/90 backdrop-blur-xl border border-primary/20 p-3 rounded-full shadow-[0_0_20px_rgba(0,243,255,0.1)] flex items-center gap-3">
+                        <RefreshCw size={16} className={`text-primary ${isRefreshing ? 'animate-spin' : ''}`} style={{ transform: `rotate(${pullDistance * 2}deg)` }} />
+                        <span className="text-[10px] font-mono text-primary uppercase tracking-widest">
+                            {isRefreshing ? 'Syncing...' : pullDistance > 80 ? 'Release to Refresh' : 'Pull to Refresh'}
+                        </span>
+                    </div>
+                </div>
+            )}
+
             <SidebarRail activeTab={activeTab} totalUnread={totalUnread} setShowNotifications={setShowNotifications} onLogout={onLogout} />
 
             <div className={`${activeId ? 'hidden md:flex' : 'flex'} md:w-80 w-full flex-col h-full bg-surface z-10`}>
@@ -772,7 +995,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             totalUnread={totalUnread} setShowNotifications={setShowNotifications}
                         />
                     } />
-                    <Route path="/vault/*" element={<VaultView wallet={wallet} />} />
+                    <Route path="/vault/*" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} />} />
                     <Route path="/settings" element={
                         <div className="p-6 space-y-4 safe-pt">
                             <h2 className="text-xl font-bold tracking-widest text-white mb-6">SETTINGS</h2>
@@ -802,7 +1025,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             activeTransfer={activeTransfer} onCancelTransfer={cancelTransfer}
                         />
                     } />
-                    <Route path="/vault/:id" element={<VaultView wallet={wallet} />} />
+                    <Route path="/vault/:id" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} />} />
                     <Route path="*" element={
                         <div className="flex-1 hidden md:flex flex-col items-center justify-center opacity-20 pointer-events-none select-none">
                             <Activity size={100} className="animate-pulse-slow" />
@@ -874,7 +1097,112 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 </Modal>
             )}
 
-            {/* Add more modals here as needed (Scan, Sync, etc.) */}
+            {showSync && (
+                <Modal isOpen={showSync} onClose={() => { setShowSync(false); setSyncStatus('IDLE'); }} title="MIGRATE IDENTITY">
+                    <div className="space-y-6">
+                        {syncStatus === 'IDLE' ? (
+                            <div className="flex flex-col items-center space-y-4">
+                                <p className="text-xs text-slate-400 text-center">Generate a migration code to clone this identity onto another device.</p>
+                                <Button onClick={startSync} className="w-full">GENERATE MIGRATION CODE</Button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center space-y-6">
+                                <div className="bg-white p-4 rounded-xl border-4 border-primary/30 shadow-[0_0_30px_rgba(0,243,255,0.2)]">
+                                    <QRCode value={JSON.stringify({ type: 'AETHER_SYNC', code: syncCode })} size={200} />
+                                </div>
+                                <div className="text-2xl font-mono text-primary tracking-[0.2em]">{syncCode}</div>
+                                <div className="flex items-center gap-2 text-[10px] text-primary font-mono animate-pulse">
+                                    <Activity size={12} /> {syncStatus}
+                                </div>
+                                <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+                                    On your new device, go to Sync Identity and scan this code. 
+                                    Do not close this window until the migration is complete.
+                                </p>
+                                <Button variant="secondary" onClick={() => setShowSync(false)} className="w-full">DONE</Button>
+                            </div>
+                        )}
+                    </div>
+                </Modal>
+            )}
+
+            {showScan && (
+                <Modal isOpen={showScan} onClose={() => { setShowScan(false); setScanStatus('IDLE'); }} title="ADD NEW PEER">
+                    <div className="space-y-6">
+                        {scanStatus !== 'IDLE' ? (
+                            <div className="flex flex-col items-center justify-center p-12 space-y-4">
+                                <Activity className="w-12 h-12 text-primary animate-pulse" />
+                                <div className="text-xs font-mono text-primary tracking-widest uppercase">{scanStatus}</div>
+                                <Button variant="ghost" onClick={() => setScanStatus('IDLE')}>CANCEL</Button>
+                            </div>
+                        ) : (
+                            <>
+                                <div id="peer-scanner" className="w-full max-w-sm mx-auto overflow-hidden rounded-lg border border-white/10 bg-black/50"></div>
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5"></div></div>
+                                    <div className="relative flex justify-center text-[10px] uppercase font-mono"><span className="bg-surface px-2 text-slate-600">OR ENTER CODE</span></div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Input placeholder="XXXX-XXXX-XXXX" value={manualCode} onChange={(e: any) => setManualCode(e.target.value.toUpperCase())} className="font-mono text-center tracking-widest" />
+                                    <Button onClick={() => initiateHandshake(manualCode)} disabled={manualCode.length < 12}>LINK</Button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </Modal>
+            )}
+
+            {showSettings && activeContact && (
+                <Modal isOpen={showSettings} onClose={() => setShowSettings(false)} title="CHANNEL SETTINGS">
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/5">
+                            <div className="text-4xl">{activeContact.emoji}</div>
+                            <div className="flex-1">
+                                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">Identity</div>
+                                <Input value={editAlias} onChange={(e: any) => setEditAlias(e.target.value)} placeholder="Display Name" className="h-10 text-base font-bold bg-white/5" />
+                                <div className="text-[9px] text-slate-600 font-mono truncate max-w-[200px] mt-1 uppercase">{activeContact.id}</div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest px-1">Security Options</div>
+                            <Button onClick={() => {
+                                if (confirm("Clear all messages in this channel? Local only.")) {
+                                    setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [], unread: 0 } : c));
+                                    setShowSettings(false);
+                                }
+                            }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12">
+                                <Trash2 size={16} className="text-slate-400" /> CLEAR LOCAL HISTORY
+                            </Button>
+                            <Button onClick={() => {
+                                if (confirm("DANGEROUS: This will attempt to clear history on BOTH devices. Proceed?")) {
+                                    sendSignal(activeContact.id, { type: 'clear_chat_request' });
+                                    setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, pendingClear: true } : c));
+                                    setShowSettings(false);
+                                }
+                            }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12 text-warning">
+                                <ShieldAlert size={16} /> CLEAR CHAT (BOTH SIDES)
+                            </Button>
+                            <Button onClick={() => {
+                                if (confirm("Permanently disconnect and delete this contact?")) {
+                                    sendSignal(activeContact.id, { type: 'disconnect' });
+                                    setTimeout(() => {
+                                        setContacts((prev: Contact[]) => prev.filter(c => c.id !== activeContact.id));
+                                        navigate('/dashboard');
+                                        setShowSettings(false);
+                                    }, 200);
+                                }
+                            }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12 text-danger">
+                                <X size={16} /> DESTROY CHANNEL
+                            </Button>
+                        </div>
+
+                        <div className="flex gap-2 pt-2 border-t border-white/5">
+                            <Button onClick={() => setShowSettings(false)} variant="ghost" className="flex-1 h-12">CANCEL</Button>
+                            <Button onClick={saveAlias} className="flex-1 h-12">SAVE CHANGES</Button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </div>
     );
 }

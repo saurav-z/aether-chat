@@ -3,12 +3,13 @@ import { LogOut, Trash2, ShieldAlert, RefreshCw, Eraser, XCircle } from 'lucide-
 
 interface ContextMenuProps {
   onLogout: () => void;
-  onClearActiveChat: () => void;
+  onClearLocal: () => void;
+  onClearBothSides: () => void;
   onNuke: () => void;
   activeContactId: string | null;
 }
 
-export const GlobalContextMenu = ({ onLogout, onClearActiveChat, onNuke, activeContactId }: ContextMenuProps) => {
+export const GlobalContextMenu = ({ onLogout, onClearLocal, onClearBothSides, onNuke, activeContactId }: ContextMenuProps) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -76,7 +77,10 @@ export const GlobalContextMenu = ({ onLogout, onClearActiveChat, onNuke, activeC
 
       <div className="py-1">
         {activeContactId && (
-            <MenuItem icon={Eraser} label="CLEAR LOCAL HISTORY" onClick={onClearActiveChat} />
+          <>
+            <MenuItem icon={Eraser} label="CLEAR LOCAL HISTORY" onClick={onClearLocal} />
+            <MenuItem icon={ShieldAlert} label="CLEAR BOTH SIDES" onClick={onClearBothSides} variant="danger" />
+          </>
         )}
         <MenuItem icon={RefreshCw} label="RELOAD SHELL" onClick={() => window.location.reload()} shortcut="F5" />
         <MenuItem icon={LogOut} label="DISCONNECT NODE" onClick={onLogout} />

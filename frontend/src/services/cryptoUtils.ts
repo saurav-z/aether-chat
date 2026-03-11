@@ -32,7 +32,7 @@ export interface Message {
   senderAlias?: string;
   replyTo?: string;
   expiresAt?: number;
-  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'disconnect' | 'sync_manifest' | 'sync_delivery' | 'ack_receipt';
+  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'clear_chat_request' | 'clear_chat_ack' | 'disconnect' | 'sync_manifest' | 'sync_delivery' | 'ack_receipt';
   status?: 'delivered' | 'seen' | 'received';
   ids?: string[];
   messages?: Message[];
@@ -46,6 +46,7 @@ export interface Contact {
   messages: Message[];
   unread: number;
   isGroup?: boolean;
+  pendingClear?: boolean;
   vanishTime?: number; // Default TTL for new messages (ms)
   autoDeleteInterval?: number; // Local cleanup frequency
   myGroupAlias?: string; // My alias in this specific group
