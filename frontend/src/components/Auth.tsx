@@ -173,7 +173,7 @@ export const LoginView = ({ vault, onSuccess, onReset, version }: any) => {
 };
 
 // --- SYNC SCANNER VIEW (BI-DIRECTIONAL) ---
-export const ScanSyncView = ({ onBack }: any) => {
+export const ScanSyncView = ({ onBack, triggerAlert }: any) => {
     const [mode, setMode] = useState<'SCAN' | 'DISPLAY'>('SCAN');
     const [status, setStatus] = useState('IDLE');
     const [displayData, setDisplayData] = useState<any>(null);
@@ -195,9 +195,9 @@ export const ScanSyncView = ({ onBack }: any) => {
                     if (msg.data.contacts) await SecureStorage.set('aether_contacts', msg.data.contacts);
                     m.destroy();
                     setTimeout(() => {
-                        alert("Migration Successful. Please Login.");
-                        window.location.reload(); 
-                    }, 1000);
+                        triggerAlert("MIGRATION COMPLETE", "Migration Successful. Please Login.", 'primary');
+                        setTimeout(() => window.location.reload(), 2000);
+                    }, 500);
                 };
                 save();
             }
@@ -222,9 +222,9 @@ export const ScanSyncView = ({ onBack }: any) => {
                             if (msg.data.contacts) await SecureStorage.set('aether_contacts', msg.data.contacts);
                             m.destroy();
                             setTimeout(() => {
-                                alert("Migration Successful. Please Login.");
-                                window.location.reload(); 
-                            }, 1000);
+                                triggerAlert("MIGRATION COMPLETE", "Migration Successful. Please Login.", 'primary');
+                                setTimeout(() => window.location.reload(), 2000);
+                            }, 500);
                         };
                         save();
                     }

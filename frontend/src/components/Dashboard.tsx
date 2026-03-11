@@ -6,7 +6,7 @@ import {
     Send, Paperclip, Activity, File, Download,
     Settings, X, Share2, Trash2, UserPlus, Shield, Lock, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, Timer, CheckCircle, Copy, QrCode as QrCodeIcon, ScanLine, ShieldAlert, RefreshCw
 } from 'lucide-react';
-import { Button, Input, Modal } from './ui/Common';
+import { Button, Input, Modal, ConfirmModal, AlertModal } from './ui/Common';
 import { Contact, Message, Wallet, computeSharedSecret, hashString, hashBuffer, generateGroupKey, getRendezvousTopic, encryptStorage, decryptStorage } from '../services/cryptoUtils';
 import { MeshNetwork } from '../services/mesh';
 import { SecureStorage } from '../services/storage';
@@ -141,7 +141,7 @@ const ChatList = ({ wallet, contacts, activeId, setShowInvite, setShowScan, stat
     )
 };
 
-const VaultView = ({ wallet, notes, setNotes }: any) => {
+const VaultView = ({ wallet, notes, setNotes, triggerConfirm }: any) => {
     const navigate = useNavigate();
     const { id: viewing } = useParams();
     const [title, setTitle] = useState('');
@@ -174,11 +174,17 @@ const VaultView = ({ wallet, notes, setNotes }: any) => {
     };
 
     const deleteNote = async (id: string) => {
-        if (!confirm("Destroy this record?")) return;
-        const updated = notes.filter((n: any) => n.id !== id);
-        const enc = await encryptStorage(wallet.storageKey, updated);
-        await SecureStorage.set('aether_vault_notes', enc);
-        setNotes(updated);
+        triggerConfirm(
+            "DESTROY RECORD",
+            "Are you sure you want to permanently destroy this secure record?",
+            async () => {
+                const updated = notes.filter((n: any) => n.id !== id);
+                const enc = await encryptStorage(wallet.storageKey, updated);
+                await SecureStorage.set('aether_vault_notes', enc);
+                setNotes(updated);
+            },
+            'danger'
+        );
     };
 
     if (viewing) {
@@ -227,7 +233,7 @@ const VaultView = ({ wallet, notes, setNotes }: any) => {
     );
 };
 
-const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShowSettings, activeTransfer, onCancelTransfer }: any) => {
+const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShowSettings, activeTransfer, onCancelTransfer, triggerAlert }: any) => {
     const navigate = useNavigate();
     if (!activeContact) {
         return (
@@ -301,8 +307,8 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShow
                 <ChatHistory messages={messages} onDelete={onDelete} />
             </div>
 
-            <div className="safe-pb bg-surface border-t border-white/5">
-                <ChatInput onSend={onSend} defaultVanish={activeContact.vanishTime} />
+            <div className="p-4 bg-surface border-t border-white/5 safe-pb">
+                <ChatInput onSend={onSend} defaultVanish={activeContact?.vanishTime} triggerAlert={triggerAlert} />
             </div>
         </div>
     );
@@ -417,7 +423,7 @@ const ChatHistory = ({ messages, onDelete }: any) => {
     );
 };
 
-const ChatInput = ({ onSend, defaultVanish }: any) => {
+const ChatInput = ({ onSend, defaultVanish, triggerAlert }: any) => {
     const [txt, setTxt] = useState('');
     const [file, setFile] = useState<any>(null);
     const [vanish, setVanish] = useState<number>(defaultVanish || 0);
@@ -479,7 +485,7 @@ const ChatInput = ({ onSend, defaultVanish }: any) => {
                     const f = e.target.files[0];
                     if (f) {
                         if (f.size > MAX_FILE_SIZE) {
-                            alert("TRANSMISSION ERROR: File exceeds 16MB encryption limit.");
+                            triggerAlert("FILE TOO LARGE", "TRANSMISSION ERROR: File exceeds 16MB encryption limit.", 'danger');
                             e.target.value = null;
                             return;
                         }
@@ -523,6 +529,41 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
     const [showSync, setShowSync] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
+
+    // Modal State
+    const [confirmState, setConfirmState] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        variant: 'primary' | 'danger' | 'secondary';
+        onConfirm: () => void;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        variant: 'primary',
+        onConfirm: () => { }
+    });
+
+    const [alertState, setAlertState] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        variant: 'primary' | 'danger';
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        variant: 'primary'
+    });
+
+    const triggerConfirm = (title: string, message: string, onConfirm: () => void, variant: 'primary' | 'danger' | 'secondary' = 'primary') => {
+        setConfirmState({ isOpen: true, title, message, onConfirm, variant });
+    };
+
+    const triggerAlert = (title: string, message: string, variant: 'primary' | 'danger' = 'primary') => {
+        setAlertState({ isOpen: true, title, message, variant });
+    };
 
     // Vault State
     const [notes, setNotes] = useState<{ id: string, title: string, content: string, date: number }[]>([]);
@@ -1000,7 +1041,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             totalUnread={totalUnread} setShowNotifications={setShowNotifications}
                         />
                     } />
-                    <Route path="/vault/*" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} />} />
+                    <Route path="/vault/*" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} triggerConfirm={triggerConfirm} />} />
                     <Route path="/settings" element={
                         <div className="p-6 space-y-4 safe-pt">
                             <h2 className="text-xl font-bold tracking-widest text-white mb-6">SETTINGS</h2>
@@ -1028,9 +1069,10 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             activeContact={activeContact} messages={activeContact?.messages || []} onSend={sendMessage} onDelete={sendDelete}
                             status={activeContact ? statusMap[activeContact.id] : ''} setShowSettings={setShowSettings}
                             activeTransfer={activeTransfer} onCancelTransfer={cancelTransfer}
+                            triggerAlert={triggerAlert}
                         />
                     } />
-                    <Route path="/vault/:id" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} />} />
+                    <Route path="/vault/:id" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} triggerConfirm={triggerConfirm} />} />
                     <Route path="*" element={
                         <div className="flex-1 hidden md:flex flex-col items-center justify-center opacity-20 pointer-events-none select-none">
                             <Activity size={100} className="animate-pulse-slow" />
@@ -1171,31 +1213,45 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                         <div className="space-y-2">
                             <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest px-1">Security Options</div>
                             <Button onClick={() => {
-                                if (confirm("Clear all messages in this channel? Local only.")) {
-                                    setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [], unread: 0 } : c));
-                                    setShowSettings(false);
-                                }
+                                triggerConfirm(
+                                    "CLEAR HISTORY",
+                                    "Clear all messages in this channel? (Local device only)",
+                                    () => {
+                                        setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, messages: [], unread: 0 } : c));
+                                        setShowSettings(false);
+                                    }
+                                );
                             }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12">
                                 <Trash2 size={16} className="text-slate-400" /> CLEAR LOCAL HISTORY
                             </Button>
                             <Button onClick={() => {
-                                if (confirm("DANGEROUS: This will attempt to clear history on BOTH devices. Proceed?")) {
-                                    sendSignal(activeContact.id, { type: 'clear_chat_request' });
-                                    setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, pendingClear: true } : c));
-                                    setShowSettings(false);
-                                }
+                                triggerConfirm(
+                                    "CLEAR BOTH SIDES",
+                                    "DANGEROUS: This will attempt to clear history on BOTH devices. Proceed?",
+                                    () => {
+                                        sendSignal(activeContact.id, { type: 'clear_chat_request' });
+                                        setContacts((prev: Contact[]) => prev.map(c => c.id === activeContact.id ? { ...c, pendingClear: true } : c));
+                                        setShowSettings(false);
+                                    },
+                                    'danger'
+                                );
                             }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12 text-warning">
                                 <ShieldAlert size={16} /> CLEAR CHAT (BOTH SIDES)
                             </Button>
                             <Button onClick={() => {
-                                if (confirm("Permanently disconnect and delete this contact?")) {
-                                    sendSignal(activeContact.id, { type: 'disconnect' });
-                                    setTimeout(() => {
-                                        setContacts((prev: Contact[]) => prev.filter(c => c.id !== activeContact.id));
-                                        navigate('/dashboard');
-                                        setShowSettings(false);
-                                    }, 200);
-                                }
+                                triggerConfirm(
+                                    "DESTROY CHANNEL",
+                                    "Permanently disconnect and delete this contact? This cannot be undone.",
+                                    () => {
+                                        sendSignal(activeContact.id, { type: 'disconnect' });
+                                        setTimeout(() => {
+                                            setContacts((prev: Contact[]) => prev.filter(c => c.id !== activeContact.id));
+                                            navigate('/dashboard');
+                                            setShowSettings(false);
+                                        }, 200);
+                                    },
+                                    'danger'
+                                );
                             }} variant="ghost" className="w-full flex justify-start gap-3 border-white/5 h-12 text-danger">
                                 <X size={16} /> DESTROY CHANNEL
                             </Button>
@@ -1208,6 +1264,23 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                     </div>
                 </Modal>
             )}
+
+            <ConfirmModal 
+                isOpen={confirmState.isOpen}
+                onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmState.onConfirm}
+                title={confirmState.title}
+                message={confirmState.message}
+                variant={confirmState.variant}
+            />
+
+            <AlertModal 
+                isOpen={alertState.isOpen}
+                onClose={() => setAlertState(prev => ({ ...prev, isOpen: false }))}
+                title={alertState.title}
+                message={alertState.message}
+                variant={alertState.variant}
+            />
         </div>
     );
 }

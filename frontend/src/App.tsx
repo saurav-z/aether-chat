@@ -9,7 +9,7 @@ import Dashboard from './components/Dashboard';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { NotificationContainer } from './components/NotificationContainer';
 import { Shield, EyeOff, RefreshCw, Lock as LockIcon } from 'lucide-react';
-import { Button } from './components/ui/Common';
+import { Button, ConfirmModal, AlertModal } from './components/ui/Common';
 
 const APP_VERSION = "2.2.0";
 
@@ -17,6 +17,40 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { addNotification } = useNotification();
+
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'primary' | 'danger' | 'secondary';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'primary',
+    onConfirm: () => {}
+  });
+
+  const [alertState, setAlertState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'primary' | 'danger';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'primary'
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, variant: 'primary' | 'danger' | 'secondary' = 'primary') => {
+    setConfirmState({ isOpen: true, title, message, onConfirm, variant });
+  };
+
+  const triggerAlert = (title: string, message: string, variant: 'primary' | 'danger' = 'primary') => {
+    setAlertState({ isOpen: true, title, message, variant });
+  };
 
   // --- PWA UPDATE HANDLER ---
   const {
@@ -193,30 +227,46 @@ function AppContent() {
   };
 
   const handleNuke = async () => {
-    if (window.confirm("CRITICAL WARNING: This will permanently erase your vault, keys, and all messages. Proceed?")) {
-        await SecureStorage.clear();
-        localStorage.clear();
-        sessionStorage.clear();
-        window.location.reload();
-    }
+    triggerConfirm(
+        "CRITICAL: NUKE DATA",
+        "This will permanently erase your vault, keys, and all messages. This action is IRREVERSIBLE. Proceed?",
+        async () => {
+            await SecureStorage.clear();
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+        },
+        'danger'
+    );
   };
 
   const activeContactId = location.pathname.match(/\/dashboard\/chat\/([^/]+)/)?.[1] || null;
 
   const handleClearLocal = () => {
-    if (activeContactId && window.confirm("Clear all local messages in this channel?")) {
-        setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, messages: [], unread: 0 } : c));
-    }
+    if (!activeContactId) return;
+    triggerConfirm(
+        "CLEAR LOCAL HISTORY",
+        "Are you sure you want to clear all local messages in this channel? This cannot be undone.",
+        () => {
+            setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, messages: [], unread: 0 } : c));
+        }
+    );
   };
 
   const handleClearBothSides = async () => {
-    if (activeContactId && window.confirm("DANGEROUS: Clear history on BOTH devices?")) {
-        const mesh = meshRefs.current.get(activeContactId);
-        if (mesh) {
-            await mesh.broadcast({ id: crypto.randomUUID(), timestamp: Date.now(), sender: 'me', type: 'clear_chat_request' });
-        }
-        setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, pendingClear: true } : c));
-    }
+    if (!activeContactId) return;
+    triggerConfirm(
+        "CLEAR BOTH SIDES",
+        "DANGEROUS: This will attempt to clear history on BOTH devices. Proceed with extreme caution?",
+        async () => {
+            const mesh = meshRefs.current.get(activeContactId);
+            if (mesh) {
+                await mesh.broadcast({ id: crypto.randomUUID(), timestamp: Date.now(), sender: 'me', type: 'clear_chat_request' });
+            }
+            setContacts(prev => prev.map(c => c.id === activeContactId ? { ...c, pendingClear: true } : c));
+        },
+        'danger'
+    );
   };
 
   if (!isInitialized) {
@@ -308,7 +358,7 @@ function AppContent() {
                 onCancel={() => navigate(-1)} 
             /> : <Navigate to="/" replace />
         } />
-        <Route path="/scan" element={<ScanSyncView onBack={() => navigate(-1)} />} />
+        <Route path="/scan" element={<ScanSyncView onBack={() => navigate(-1)} triggerAlert={triggerAlert} />} />
         <Route path="/dashboard/*" element={
             wallet ? (
                 <>
@@ -321,7 +371,11 @@ function AppContent() {
                     {lockTime && (
                         <div 
                           onClick={() => {
-                            if (window.confirm("Terminate secure session and lock vault?")) handleLogout();
+                            triggerConfirm(
+                                "LOCK SESSION",
+                                "Terminate secure session and lock vault now?",
+                                () => handleLogout()
+                            );
                           }}
                           className="fixed top-0 left-1/2 -translate-x-1/2 bg-primary/10 hover:bg-danger/20 hover:text-danger cursor-pointer transition-all backdrop-blur border-b border-l border-r border-primary/30 hover:border-danger/30 text-primary text-[9px] px-3 py-1 rounded-b-lg font-mono z-[60] flex items-center gap-1.5 group"
                         >
@@ -334,6 +388,23 @@ function AppContent() {
             ) : <Navigate to="/login" replace />
         } />
       </Routes>
+
+      <ConfirmModal 
+        isOpen={confirmState.isOpen}
+        onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        variant={confirmState.variant}
+      />
+
+      <AlertModal 
+        isOpen={alertState.isOpen}
+        onClose={() => setAlertState(prev => ({ ...prev, isOpen: false }))}
+        title={alertState.title}
+        message={alertState.message}
+        variant={alertState.variant}
+      />
     </>
   );
 }
