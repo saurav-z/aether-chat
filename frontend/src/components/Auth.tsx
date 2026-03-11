@@ -301,11 +301,29 @@ export const ScanSyncView = ({ onBack, triggerAlert }: any) => {
               <p className="text-xs text-slate-500 font-light">Scan the code from your old device to receive your identity.</p>
                 </>
             ) : (
-              <div className="text-center space-y-4">
+              <div className="text-center space-y-6">
                 <div className="bg-white p-4 rounded-xl inline-block border-4 border-primary/30 shadow-[0_0_30px_rgba(0,243,255,0.15)]">
                         {displayData && <QRCode value={JSON.stringify(displayData)} size={200} />}
                     </div>
-                <div className="text-primary text-xs font-light animate-pulse">WAITING FOR OLD DEVICE...</div>
+                
+                {displayData?.code && (
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-lg">
+                            <span className="text-xl font-mono text-primary tracking-widest">{displayData.code}</span>
+                            <button 
+                                onClick={() => {
+                                    navigator.clipboard.writeText(displayData.code);
+                                    triggerAlert("COPIED", "Migration code copied.", 'primary');
+                                }}
+                                className="p-1.5 hover:bg-white/10 rounded text-primary transition-colors"
+                            >
+                                <Copy size={16} />
+                            </button>
+                        </div>
+                        <div className="text-primary text-[10px] font-mono animate-pulse uppercase tracking-widest">Awaiting Link...</div>
+                    </div>
+                )}
+
                 <p className="text-slate-500 text-xs max-w-xs mx-auto font-light leading-relaxed">
                   On your logged-in device, go to Settings → Sync Identity and scan this code.
                     </p>

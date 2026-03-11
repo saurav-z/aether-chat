@@ -4,7 +4,8 @@ import QRCode from 'react-qr-code';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import {
     Send, Paperclip, Activity, File, Download,
-    Settings, X, Share2, Trash2, UserPlus, Shield, Lock, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, Timer, CheckCircle, Copy, QrCode as QrCodeIcon, ScanLine, ShieldAlert, RefreshCw
+    Settings, X, Share2, Trash2, UserPlus, Shield, Lock, MessageSquare, HardDrive, Layout, ChevronLeft, Plus, Timer, CheckCircle, Copy, QrCode as QrCodeIcon, ScanLine, ShieldAlert, RefreshCw,
+    Search, Wrench, Eye, EyeOff as EyeOffIcon, DownloadCloud, Ban
 } from 'lucide-react';
 import { Button, Input, Modal, ConfirmModal, AlertModal } from './ui/Common';
 import { Contact, Message, Wallet, computeSharedSecret, hashString, hashBuffer, generateGroupKey, getRendezvousTopic, encryptStorage, decryptStorage } from '../services/cryptoUtils';
@@ -72,7 +73,7 @@ const ChatList = ({ wallet, contacts, activeId, setShowInvite, setShowScan, stat
         <div className="h-full flex flex-col bg-surface/95 backdrop-blur-xl border-r border-white/5 safe-pt">
             <div className="p-4 border-b border-white/5 flex items-center justify-between h-16 bg-black/20 shrink-0">
                 <div className="flex items-center gap-3">
-                    <div className="md:hidden w-8 h-8 rounded bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center font-bold text-black font-mono shadow-[0_0_10px_rgba(0,243,255,0.3)]">A</div>
+                    <div className="md:hidden w-8 h-8 rounded bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center font-bold text-black font-mono shadow-[0_0_15px_rgba(0,243,255,0.3)]">A</div>
                     <div className="flex flex-col">
                         <div className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">Rolling Network ID</div>
                         <div className="flex items-center gap-2">
@@ -233,8 +234,340 @@ const VaultView = ({ wallet, notes, setNotes, triggerConfirm }: any) => {
     );
 };
 
-const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShowSettings, activeTransfer, onCancelTransfer, triggerAlert }: any) => {
+const Linkify = ({ text }: { text: string }) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return (
+        <span className="whitespace-pre-wrap">
+            {parts.map((part, i) => {
+                if (part.match(urlRegex)) {
+                    return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all" onClick={(e) => e.stopPropagation()}>{part}</a>;
+                }
+                return part;
+            })}
+        </span>
+    );
+};
+
+const ChatHistory = ({ messages, onDelete, jumpToId, onViewFile }: any) => {
+    const bottomRef = useRef<HTMLDivElement>(null);
+    const [limit, setLimit] = useState(50);
+    
+    useEffect(() => {
+        if (jumpToId) {
+            const index = messages.findIndex((m: any) => m.id === jumpToId);
+            if (index !== -1) {
+                const fromEnd = messages.length - index;
+                if (fromEnd > limit) setLimit(fromEnd + 10);
+                
+                setTimeout(() => {
+                    const el = document.getElementById(`msg-${jumpToId}`);
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el?.classList.add('highlight-pulse');
+                    setTimeout(() => el?.classList.remove('highlight-pulse'), 2000);
+                }, 100);
+            }
+        } else if (limit === 50) {
+            bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [messages, limit, jumpToId]);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const msgId = entry.target.id.replace('msg-', '');
+                    const msg = messages.find((m: any) => m.id === msgId);
+                    if (msg && msg.file && msg.sender !== 'me' && !msg.file._viewedSent) {
+                        onViewFile(msgId);
+                        msg.file._viewedSent = true; 
+                    }
+                }
+            });
+        }, { threshold: 0.5 });
+
+        messages.forEach((m: any) => {
+            if (m.file && m.sender !== 'me') {
+                const el = document.getElementById(`msg-${m.id}`);
+                if (el) observer.observe(el);
+            }
+        });
+
+        return () => observer.disconnect();
+    }, [messages, onViewFile]);
+
+    const getReplyText = (id: string) => {
+        const m = messages.find((x: any) => x.id === id);
+        return m ? (m.text.substring(0, 30) + (m.text.length > 30 ? '...' : '')) : 'Deleted Message';
+    };
+
+    const visibleMessages = useMemo(() => {
+        return messages.slice(-limit);
+    }, [messages, limit]);
+
+    const hasMore = messages.length > limit;
+
+    return (
+        <>
+            {hasMore && (
+                <div className="flex justify-center pb-4">
+                    <button 
+                        onClick={() => setLimit(prev => prev + 50)}
+                        className="text-[10px] font-mono text-primary bg-primary/5 border border-primary/20 px-4 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
+                    >
+                        LOAD OLDER MESSAGES ({messages.length - limit} REMAINING)
+                    </button>
+                </div>
+            )}
+            {visibleMessages.map((msg: Message) => {
+                if (msg.type === 'system') return (
+                    <div key={msg.id} className="text-center text-[9px] text-slate-600 font-mono my-4 uppercase tracking-widest border-t border-white/5 pt-2 w-3/4 mx-auto">
+                        {msg.text}
+                    </div>
+                );
+                return (
+                    <div key={msg.id} id={`msg-${msg.id}`} className={`flex flex-col ${msg.sender === 'me' ? 'items-end' : 'items-start'} group relative z-10 transition-all duration-500`}>
+                        {msg.sender !== 'me' && <span className="text-[9px] text-slate-500 mb-1 ml-1 font-mono">{msg.sender}</span>}
+                        <div className={`max-w-[85%] md:max-w-[60%] relative`}>
+                            {msg.replyTo && (
+                                <div className="text-[10px] text-slate-400 mb-1 opacity-70 border-l-2 border-slate-500 pl-2 italic">
+                                    Replying to: {getReplyText(msg.replyTo)}
+                                </div>
+                            )}
+                            <div className={`p-3 md:p-4 rounded-2xl border backdrop-blur-sm relative shadow-lg
+                                ${msg.sender === 'me'
+                                    ? 'bg-primary/10 border-primary/20 text-white rounded-tr-sm'
+                                    : 'bg-[#1a1a1f] border-white/10 text-slate-200 rounded-tl-sm'}`}>
+
+                                {msg.text && <p className="text-sm leading-relaxed font-sans select-text"><Linkify text={msg.text} /></p>}
+                                {msg.file && (
+                                    <div className="mt-3 p-3 bg-black/40 rounded border border-white/10 flex flex-col gap-3 overflow-hidden hover:border-primary/50 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            {msg.file.type.startsWith('image') ? (
+                                                (msg.file.viewLimit && (msg.file.viewCount || 0) >= msg.file.viewLimit && msg.sender !== 'me') ? (
+                                                    <div className="h-32 w-full flex flex-col items-center justify-center bg-white/5 rounded border border-dashed border-white/10">
+                                                        <EyeOffIcon size={24} className="text-slate-600 mb-2" />
+                                                        <span className="text-[10px] font-mono text-slate-500 uppercase">VIEW LIMIT REACHED</span>
+                                                    </div>
+                                                ) : <img src={msg.file.data} className="h-32 object-contain" />
+                                            ) : <File size={24} className="text-primary" />}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1 overflow-hidden">
+                                                    <div className="text-xs font-bold truncate">{msg.file.name}</div>
+                                                    {msg.file.integrity && <Shield size={10} className="text-primary shrink-0" />}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500">{(msg.file.size / 1024).toFixed(1)}KB</div>
+                                            </div>
+                                            {msg.file.isDownloadable !== false && (
+                                                <a href={msg.file.data} download={msg.file.name} className="p-2 hover:bg-white/10 rounded-full text-primary"><Download size={16} /></a>
+                                            )}
+                                        </div>
+                                        
+                                        {(msg.file.viewLimit || msg.sender === 'me') && (
+                                            <div className="flex items-center justify-between border-t border-white/5 pt-2">
+                                                <div className="flex items-center gap-1 text-[8px] font-mono text-slate-500 uppercase">
+                                                    <Eye size={10} /> {msg.file.viewCount || 0} / {msg.file.viewLimit || '∞'} VIEWS
+                                                </div>
+                                                {msg.file.isDownloadable === false && (
+                                                    <div className="flex items-center gap-1 text-[8px] font-mono text-danger uppercase">
+                                                        <Ban size={10} /> VIEW ONLY
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-1">
+                                    {msg.expiresAt && <Timer size={10} className="text-danger animate-pulse mr-1" />}
+                                    <div className="text-[9px] opacity-40 font-mono tracking-wider">
+                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                    {msg.sender === 'me' && (
+                                        <div className="flex items-center -ml-0.5">
+                                            <CheckCircle size={8} className={`${(msg.status === 'seen' || msg.status === 'received') ? (msg.status === 'seen' ? 'text-primary' : 'text-slate-500') : 'text-slate-700'}`} />
+                                            {(msg.status === 'seen' || msg.status === 'received') && (
+                                                <CheckCircle size={8} className={`${msg.status === 'seen' ? 'text-primary' : 'text-slate-500'} -ml-1`} />
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            {msg.sender === 'me' && (
+                                <button onClick={() => onDelete(msg.id)} className="absolute top-2 -left-8 p-2 text-slate-600 hover:text-danger opacity-0 group-hover:opacity-100 transition-all transform hover:scale-110">
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })}
+            <div ref={bottomRef} />
+        </>
+    );
+};
+
+const ChatInput = ({ onSend, defaultVanish, triggerAlert, searchQuery }: any) => {
+    const [txt, setTxt] = useState('');
+    const [file, setFile] = useState<any>(null);
+    const [vanish, setVanish] = useState<number>(defaultVanish || 0);
+    const [showVanishMenu, setShowVanishMenu] = useState(false);
+    const [showCustomVanish, setShowCustomVanish] = useState(false);
+    const [customVanishValue, setCustomVanishValue] = useState(10);
+    const [customVanishUnit, setCustomVanishUnit] = useState<'S' | 'M' | 'H' | 'D'>('M');
+    
+    const [isDownloadable, setIsDownloadable] = useState(true);
+    const [viewLimit, setViewLimit] = useState(0); // 0 = unlimited
+
+    const fileRef = useRef<HTMLInputElement>(null);
+    const MAX_FILE_SIZE = 16 * 1024 * 1024;
+
+    const submit = () => {
+        if (!txt.trim() && !file) return;
+        
+        const fileSettings = file ? {
+            isDownloadable,
+            viewLimit: viewLimit > 0 ? viewLimit : undefined
+        } : undefined;
+
+        onSend(txt, file ? { ...file, ...fileSettings } : null, undefined, vanish);
+        setTxt(''); setFile(null);
+    };
+
+    const processFile = async (f: File) => {
+        try {
+            const buffer = await f.arrayBuffer();
+            const integrity = await hashBuffer(buffer);
+            const reader = new FileReader();
+            reader.onload = (e: any) => {
+                setFile({ name: f.name, type: f.type, size: f.size, data: e.target.result, integrity });
+            };
+            reader.readAsDataURL(f);
+        } catch (e) {
+            console.error("File integrity check failed", e);
+        }
+    };
+
+    const getCustomVanishMs = () => {
+        const multipliers = { S: 1000, M: 60000, H: 3600000, D: 86400000 };
+        return customVanishValue * multipliers[customVanishUnit];
+    };
+
+    return (
+        <div className="p-3 md:p-4 relative">
+            {showVanishMenu && (
+                <div className="absolute bottom-full left-4 mb-2 w-48 bg-[#0a0a0c] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[100] animate-in slide-in-from-bottom-2">
+                    <div className="p-2 border-b border-white/5 flex items-center justify-between bg-white/5">
+                        <span className="text-[9px] font-mono text-primary font-bold uppercase tracking-widest pl-2">Vanish Timer</span>
+                        <button onClick={() => setShowCustomVanish(!showCustomVanish)} className={`p-1.5 rounded transition-colors ${showCustomVanish ? 'bg-primary text-black' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+                            <Wrench size={12} />
+                        </button>
+                    </div>
+                    
+                    {!showCustomVanish ? (
+                        <div className="p-1 grid grid-cols-1 gap-0.5">
+                            {[0, 10000, 60000, 3600000, 86400000].map(v => (
+                                <button key={v} onClick={() => { setVanish(v); setShowVanishMenu(false); }} className={`w-full text-left px-3 py-2 text-[10px] font-mono rounded hover:bg-white/5 transition-colors ${vanish === v ? 'text-primary' : 'text-slate-400'}`}>
+                                    {v === 0 ? 'OFF (PERMANENT)' : 
+                                     v === 10000 ? '10 SECONDS' : 
+                                     v === 60000 ? '1 MINUTE' : 
+                                     v === 3600000 ? '1 HOUR' : '24 HOURS'}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-3 space-y-3 bg-primary/5">
+                            <div className="flex gap-1">
+                                {['S', 'M', 'H', 'D'].map((u: any) => (
+                                    <button key={u} onClick={() => setCustomVanishUnit(u)} className={`flex-1 py-1 text-[10px] font-bold rounded border transition-all ${customVanishUnit === u ? 'bg-primary text-black border-primary' : 'border-white/10 text-slate-500'}`}>{u}</button>
+                                ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="range" min="1" max="60" value={customVanishValue} onChange={e => setCustomVanishValue(parseInt(e.target.value))} className="flex-1 accent-primary h-1 bg-white/10 rounded-lg appearance-none cursor-pointer" />
+                                <span className="text-xs font-mono text-primary w-6">{customVanishValue}</span>
+                            </div>
+                            <Button onClick={() => { setVanish(getCustomVanishMs()); setShowVanishMenu(false); setShowCustomVanish(false); }} className="w-full h-8 text-[10px]">SET TIMER</Button>
+                        </div>
+                    )}
+                </div>
+            )}
+            {file && (
+                <div className="flex flex-col bg-white/5 border border-white/10 rounded-xl p-3 animate-in slide-in-from-bottom-2 duration-200 mb-2">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-primary">
+                            <File size={16} />
+                            <span className="text-xs max-w-[200px] truncate font-mono font-bold">{file.name}</span>
+                        </div>
+                        <button onClick={() => setFile(null)} className="p-1 hover:bg-white/10 rounded"><X size={14} className="text-danger" /></button>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 border-t border-white/5 pt-3">
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setIsDownloadable(!isDownloadable)}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono transition-all ${isDownloadable ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-danger/10 text-danger border border-danger/20'}`}
+                            >
+                                {isDownloadable ? <DownloadCloud size={12} /> : <Ban size={12} />}
+                                {isDownloadable ? 'ALLOW DOWNLOAD' : 'VIEW ONLY'}
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                            <Eye size={12} />
+                            <span>LIMIT:</span>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => setViewLimit(v => Math.max(0, v - 1))} className="w-5 h-5 flex items-center justify-center bg-white/5 rounded hover:bg-white/10">-</button>
+                                <span className={viewLimit > 0 ? 'text-primary font-bold w-4 text-center' : 'text-slate-600 w-4 text-center'}>{viewLimit === 0 ? '∞' : viewLimit}</span>
+                                <button onClick={() => setViewLimit(v => v + 1)} className="w-5 h-5 flex items-center justify-center bg-white/5 rounded hover:bg-white/10">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            <div className="flex gap-2 items-end">
+                <button onClick={() => setShowVanishMenu(!showVanishMenu)} className={`p-3 transition-colors rounded-xl border border-transparent hover:bg-white/5 ${vanish > 0 ? 'text-danger border-danger/20' : 'text-slate-400'}`}>
+                    <div className="relative">
+                        <Timer size={20} />
+                        {vanish > 0 && <span className="absolute -top-2 -right-2 text-[8px] font-bold bg-danger text-white px-1 rounded-full min-w-[14px] flex items-center justify-center">
+                            {vanish < 60000 ? `${vanish/1000}S` : 
+                             vanish < 3600000 ? `${Math.round(vanish/60000)}M` : 
+                             vanish < 86400000 ? `${Math.round(vanish/3600000)}H` : '1D'}
+                        </span>}
+                    </div>
+                </button>
+                <button onClick={() => fileRef.current?.click()} className="p-3 text-slate-400 hover:text-white transition-colors hover:bg-white/5 rounded-xl relative group">
+                    <Paperclip size={20} />
+                </button>
+                <input type="file" ref={fileRef} className="hidden" onChange={(e: any) => {
+                    const f = e.target.files[0];
+                    if (f) {
+                        if (f.size > MAX_FILE_SIZE) {
+                            triggerAlert("FILE TOO LARGE", "TRANSMISSION ERROR: File exceeds 16MB encryption limit.", 'danger');
+                            e.target.value = null;
+                            return;
+                        }
+                        processFile(f);
+                    }
+                }} />
+                <textarea
+                    className="flex-1 bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-primary/50 resize-none max-h-32 min-h-[46px] transition-all"
+                    rows={1} placeholder={searchQuery ? "Searching messages..." : "Message..."} value={txt} onChange={e => setTxt(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+                />
+                <button onClick={submit} className="p-3 bg-primary text-black rounded-xl hover:bg-primary/80 transition-all hover:shadow-[0_0_15px_rgba(0,243,255,0.4)] transform active:scale-95"><Send size={20} /></button>
+            </div>
+        </div>
+    );
+};
+
+const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShowSettings, activeTransfer, onCancelTransfer, triggerAlert, searchQuery, setSearchQuery, searchResults, onViewFile }: any) => {
     const navigate = useNavigate();
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const [jumpToId, setJumpToId] = useState<string | null>(null);
+
+    const scrollToMessage = (id: string) => {
+        setJumpToId(id);
+        setSearchQuery('');
+    };
+
     if (!activeContact) {
         return (
             <div className="flex-1 hidden md:flex flex-col items-center justify-center opacity-20 pointer-events-none select-none">
@@ -270,15 +603,15 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShow
                 </div>
             )}
 
-            <div className="h-16 border-b border-white/5 bg-surface/95 backdrop-blur flex items-center px-4 justify-between z-20 shadow-sm safe-pt">
-                <div className="flex items-center gap-2">
+            <div className="h-16 border-b border-white/5 bg-surface/95 backdrop-blur flex items-center px-4 justify-between z-20 shadow-sm safe-pt shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
                     <button onClick={() => navigate('/dashboard')} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white"><ChevronLeft /></button>
                     <div className="text-3xl filter drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">{activeContact.emoji}</div>
-                    <div onClick={() => setShowSettings(true)} className="cursor-pointer hover:opacity-80 transition-opacity ml-2">
-                        <div className="font-bold text-white leading-none flex items-center gap-2 text-lg">
+                    <div onClick={() => setShowSettings(true)} className="cursor-pointer hover:opacity-80 transition-opacity ml-2 min-w-0">
+                        <div className="font-bold text-white leading-none flex items-center gap-2 text-lg truncate">
                             {activeContact.alias}
                         </div>
-                        <div className="text-[10px] font-mono text-primary flex items-center gap-2 mt-1">
+                        <div className="text-[10px] font-mono text-primary flex items-center gap-2 mt-1 truncate">
                             <div className="flex items-center gap-1">
                                 <Lock size={10} className="text-primary/70" />
                                 {status || 'ENCRYPTED'}
@@ -291,213 +624,46 @@ const ChatWindow = ({ activeContact, messages, onSend, onDelete, status, setShow
                         </div>
                     </div>
                 </div>
-                <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white p-2 flex items-center gap-2">
-                    <div className="flex flex-col items-end">
-                        <span className="text-[8px] text-slate-500 font-mono">LINK STRENGTH</span>
-                        <div className="flex gap-0.5 mt-0.5">
-                            {[1, 2, 3, 4].map(i => <div key={i} className={`w-3 h-1 rounded-full ${status === 'SECURE_RELAY_CONNECTED' ? 'bg-primary' : 'bg-slate-800'}`}></div>)}
-                        </div>
+                <div className="flex items-center gap-2">
+                    <div className="relative hidden sm:block">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Find..." 
+                            className="bg-white/5 border border-white/10 rounded-full py-1.5 pl-9 pr-4 text-[10px] text-white focus:outline-none focus:border-primary/30 w-24 focus:w-40 transition-all font-mono"
+                        />
+                        {searchQuery && (
+                            <div className="absolute top-full right-0 mt-2 w-64 bg-[#0a0a0c] border border-white/10 rounded-xl shadow-2xl z-[110] max-h-80 overflow-y-auto custom-scrollbar">
+                                <div className="p-2 text-[9px] font-mono text-primary uppercase border-b border-white/5 bg-white/5 sticky top-0">Found {searchResults.length} matches</div>
+                                {searchResults.map((m: any) => (
+                                    <button key={m.id} onClick={() => scrollToMessage(m.id)} className="w-full p-3 text-left hover:bg-white/5 border-b border-white/5 transition-colors group">
+                                        <div className="text-[10px] text-slate-300 line-clamp-2 mb-1 font-sans">{m.text}</div>
+                                        <div className="text-[8px] text-slate-600 font-mono">{new Date(m.timestamp).toLocaleString()}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    <Settings size={20} />
-                </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar relative bg-black/50">
-                <div className="absolute inset-0 bg-cyber-grid bg-[length:30px_30px] opacity-[0.03] pointer-events-none" />
-                <ChatHistory messages={messages} onDelete={onDelete} />
-            </div>
-
-            <div className="p-4 bg-surface border-t border-white/5 safe-pb">
-                <ChatInput onSend={onSend} defaultVanish={activeContact?.vanishTime} triggerAlert={triggerAlert} />
-            </div>
-        </div>
-    );
-};
-
-const Linkify = ({ text }: { text: string }) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-    return (
-        <span className="whitespace-pre-wrap">
-            {parts.map((part, i) => {
-                if (part.match(urlRegex)) {
-                    return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all" onClick={(e) => e.stopPropagation()}>{part}</a>;
-                }
-                return part;
-            })}
-        </span>
-    );
-};
-
-const ChatHistory = ({ messages, onDelete }: any) => {
-    const bottomRef = useRef<HTMLDivElement>(null);
-    const [limit, setLimit] = useState(50);
-    
-    useEffect(() => {
-        if (limit === 50) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, limit]);
-
-    const getReplyText = (id: string) => {
-        const m = messages.find((x: any) => x.id === id);
-        return m ? (m.text.substring(0, 30) + (m.text.length > 30 ? '...' : '')) : 'Deleted Message';
-    };
-
-    const visibleMessages = useMemo(() => {
-        return messages.slice(-limit);
-    }, [messages, limit]);
-
-    const hasMore = messages.length > limit;
-
-    return (
-        <>
-            {hasMore && (
-                <div className="flex justify-center pb-4">
-                    <button 
-                        onClick={() => setLimit(prev => prev + 50)}
-                        className="text-[10px] font-mono text-primary bg-primary/5 border border-primary/20 px-4 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
-                    >
-                        LOAD OLDER MESSAGES ({messages.length - limit} REMAINING)
+                    <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white p-2 flex items-center gap-2">
+                        <div className="hidden lg:flex flex-col items-end">
+                            <span className="text-[8px] text-slate-500 font-mono">LINK STRENGTH</span>
+                            <div className="flex gap-0.5 mt-0.5">
+                                {[1, 2, 3, 4].map(i => <div key={i} className={`w-3 h-1 rounded-full ${status === 'SECURE_RELAY_CONNECTED' ? 'bg-primary' : 'bg-slate-800'}`}></div>)}
+                            </div>
+                        </div>
+                        <Settings size={20} />
                     </button>
                 </div>
-            )}
-            {visibleMessages.map((msg: Message) => {
-                if (msg.type === 'system') return (
-                    <div key={msg.id} className="text-center text-[9px] text-slate-600 font-mono my-4 uppercase tracking-widest border-t border-white/5 pt-2 w-3/4 mx-auto">
-                        {msg.text}
-                    </div>
-                );
-                return (
-                    <div key={msg.id} className={`flex flex-col ${msg.sender === 'me' ? 'items-end' : 'items-start'} group relative z-10`}>
-                        {msg.sender !== 'me' && <span className="text-[9px] text-slate-500 mb-1 ml-1 font-mono">{msg.sender}</span>}
-                        <div className={`max-w-[85%] md:max-w-[60%] relative`}>
-                            {msg.replyTo && (
-                                <div className="text-[10px] text-slate-400 mb-1 opacity-70 border-l-2 border-slate-500 pl-2 italic">
-                                    Replying to: {getReplyText(msg.replyTo)}
-                                </div>
-                            )}
-                            <div className={`p-3 md:p-4 rounded-2xl border backdrop-blur-sm relative shadow-lg
-                                ${msg.sender === 'me'
-                                    ? 'bg-primary/10 border-primary/20 text-white rounded-tr-sm'
-                                    : 'bg-[#1a1a1f] border-white/10 text-slate-200 rounded-tl-sm'}`}>
+            </div>
 
-                                {msg.text && <p className="text-sm leading-relaxed font-sans select-text"><Linkify text={msg.text} /></p>}
-                                {msg.file && (
-                                    <div className="mt-3 p-3 bg-black/40 rounded border border-white/10 flex items-center gap-3 overflow-hidden hover:border-primary/50 transition-colors cursor-pointer">
-                                        {msg.file.type.startsWith('image') ? <img src={msg.file.data} className="h-32 object-contain" /> : <File size={24} className="text-primary" />}
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-1 overflow-hidden">
-                                                <div className="text-xs font-bold truncate">{msg.file.name}</div>
-                                                {msg.file.integrity && <Shield size={10} className="text-primary shrink-0" />}
-                                            </div>
-                                            <div className="text-[10px] text-slate-500">{(msg.file.size / 1024).toFixed(1)}KB</div>
-                                        </div>
-                                        <a href={msg.file.data} download={msg.file.name} className="p-2 hover:bg-white/10 rounded-full"><Download size={16} /></a>
-                                    </div>
-                                )}
-                                <div className="flex items-center gap-1">
-                                    {msg.expiresAt && <Timer size={10} className="text-danger animate-pulse mr-1" />}
-                                    <div className="text-[9px] opacity-40 font-mono tracking-wider">
-                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                    {msg.sender === 'me' && (
-                                        <div className="flex items-center -ml-0.5">
-                                            <CheckCircle size={8} className={`${(msg.status === 'seen' || msg.status === 'received') ? (msg.status === 'seen' ? 'text-primary' : 'text-slate-500') : 'text-slate-700'}`} />
-                                            {(msg.status === 'seen' || msg.status === 'received') && (
-                                                <CheckCircle size={8} className={`${msg.status === 'seen' ? 'text-primary' : 'text-slate-500'} -ml-1`} />
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            {msg.sender === 'me' && (
-                                <button onClick={() => onDelete(msg.id)} className="absolute top-2 -left-8 p-2 text-slate-600 hover:text-danger opacity-0 group-hover:opacity-100 transition-all transform hover:scale-110">
-                                    <Trash2 size={14} />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                );
-            })}
-            <div ref={bottomRef} />
-        </>
-    );
-};
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar relative bg-black/50" ref={chatContainerRef}>
+                <div className="absolute inset-0 bg-cyber-grid bg-[length:30px_30px] opacity-[0.03] pointer-events-none" />
+                <ChatHistory messages={messages} onDelete={onDelete} jumpToId={jumpToId} onViewFile={onViewFile} />
+            </div>
 
-const ChatInput = ({ onSend, defaultVanish, triggerAlert }: any) => {
-    const [txt, setTxt] = useState('');
-    const [file, setFile] = useState<any>(null);
-    const [vanish, setVanish] = useState<number>(defaultVanish || 0);
-    const [showVanishMenu, setShowVanishMenu] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
-    const MAX_FILE_SIZE = 16 * 1024 * 1024;
-
-    const submit = () => {
-        if (!txt.trim() && !file) return;
-        onSend(txt, file, undefined, vanish);
-        setTxt(''); setFile(null);
-    };
-
-    const processFile = async (f: File) => {
-        try {
-            const buffer = await f.arrayBuffer();
-            const integrity = await hashBuffer(buffer);
-            const reader = new FileReader();
-            reader.onload = (e: any) => {
-                setFile({ name: f.name, type: f.type, size: f.size, data: e.target.result, integrity });
-            };
-            reader.readAsDataURL(f);
-        } catch (e) {
-            console.error("File integrity check failed", e);
-        }
-    };
-
-    const vanishLabel = vanish === 0 ? 'OFF' : vanish === 60000 ? '1m' : vanish === 300000 ? '5m' : '1h';
-
-    return (
-        <div className="p-3 md:p-4 relative">
-            {showVanishMenu && (
-                <div className="absolute bottom-full left-4 bg-black border border-white/20 p-2 rounded-lg flex gap-2 shadow-2xl z-50 mb-2">
-                    {[0, 60000, 300000, 3600000].map(t => (
-                        <button key={t} onClick={() => { setVanish(t); setShowVanishMenu(false); }} className={`px-3 py-1 text-xs font-mono rounded transition-colors ${vanish === t ? 'bg-primary text-black font-bold' : 'text-slate-400 hover:bg-white/10'}`}>
-                            {t === 0 ? 'OFF' : t === 60000 ? '1m' : t === 300000 ? '5m' : '1h'}
-                        </button>
-                    ))}
-                </div>
-            )}
-            {file && (
-                <div className="mb-3 p-2 bg-white/5 rounded border border-white/10 inline-flex items-center gap-3">
-                    <Paperclip size={14} className="text-primary" />
-                    <span className="text-xs max-w-[200px] truncate font-mono">{file.name}</span>
-                    <button onClick={() => setFile(null)}><X size={14} className="text-danger hover:scale-110 transition-transform" /></button>
-                </div>
-            )}
-            <div className="flex gap-2 items-end">
-                <button onClick={() => setShowVanishMenu(!showVanishMenu)} className={`p-3 transition-colors rounded-xl border border-transparent hover:bg-white/5 ${vanish > 0 ? 'text-danger border-danger/20' : 'text-slate-400'}`}>
-                    <div className="relative">
-                        <Timer size={20} />
-                        {vanish > 0 && <span className="absolute -top-2 -right-2 text-[8px] font-bold bg-danger text-white px-1 rounded-full">{vanishLabel}</span>}
-                    </div>
-                </button>
-                <button onClick={() => fileRef.current?.click()} className="p-3 text-slate-400 hover:text-white transition-colors hover:bg-white/5 rounded-xl relative group">
-                    <Paperclip size={20} />
-                </button>
-                <input type="file" ref={fileRef} className="hidden" onChange={(e: any) => {
-                    const f = e.target.files[0];
-                    if (f) {
-                        if (f.size > MAX_FILE_SIZE) {
-                            triggerAlert("FILE TOO LARGE", "TRANSMISSION ERROR: File exceeds 16MB encryption limit.", 'danger');
-                            e.target.value = null;
-                            return;
-                        }
-                        processFile(f);
-                    }
-                }} />
-                <textarea
-                    className="flex-1 bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-primary/50 resize-none max-h-32 min-h-[46px] transition-all"
-                    rows={1} placeholder="Message..." value={txt} onChange={e => setTxt(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                />
-                <button onClick={submit} className="p-3 bg-primary text-black rounded-xl hover:bg-primary/80 transition-all hover:shadow-[0_0_15px_rgba(0,243,255,0.4)] transform active:scale-95"><Send size={20} /></button>
+            <div className="p-4 bg-surface border-t border-white/5 safe-pb shrink-0">
+                <ChatInput onSend={onSend} defaultVanish={activeContact?.vanishTime} triggerAlert={triggerAlert} searchQuery={searchQuery} />
             </div>
         </div>
     );
@@ -556,6 +722,21 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         message: '',
         variant: 'primary'
     });
+
+    // Search State
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    const activeContact = useMemo(() => contacts.find((c: Contact) => c.id === activeId), [contacts, activeId]);
+
+    const searchResults = useMemo(() => {
+        if (!searchQuery.trim() || !activeContact) return [];
+        return activeContact.messages.filter((m: Message) => 
+            m.text?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            m.file?.name?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [searchQuery, activeContact]);
+
+    const totalUnread = useMemo(() => contacts.reduce((sum: number, c: Contact) => sum + (c.unread || 0), 0), [contacts]);
 
     const triggerConfirm = (title: string, message: string, onConfirm: () => void, variant: 'primary' | 'danger' | 'secondary' = 'primary') => {
         setConfirmState({ isOpen: true, title, message, onConfirm, variant });
@@ -798,6 +979,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             }
             if (msg.type === 'seen') return { ...c, messages: c.messages.map(m => (m.id === msg.text || !msg.text) ? { ...m, status: 'seen' } : m) };
             if (msg.type === 'ack_receipt') return { ...c, messages: c.messages.map(m => m.id === msg.text ? { ...m, status: 'received' } : m) };
+            if (msg.type === 'viewed') return { ...c, messages: c.messages.map(m => m.id === msg.text ? { ...m, file: m.file ? { ...m.file, viewCount: (m.file.viewCount || 0) + 1 } : undefined } : m) };
             if (msg.type === 'sync_manifest') {
                 const theirIds = new Set(msg.ids);
                 const toSend = c.messages.filter(m => m.type !== 'system' && !theirIds.has(m.id)).slice(-10);
@@ -855,8 +1037,6 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         }
     }, [activeId]);
 
-    const activeContact = useMemo(() => contacts.find((c: Contact) => c.id === activeId), [contacts, activeId]);
-
     useEffect(() => {
         if (showSettings && activeContact) {
             setEditAlias(activeContact.alias);
@@ -904,6 +1084,13 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         }
     };
 
+    const copyInviteCode = () => {
+        if (activeInvite) {
+            navigator.clipboard.writeText(activeInvite.code);
+            triggerAlert("COPIED", "Invite code copied to clipboard.", 'primary');
+        }
+    };
+
     useEffect(() => {
         if (!activeInvite) return;
         const initInviteMesh = async () => {
@@ -911,10 +1098,11 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             const mesh = new MeshNetwork(activeInvite.secret, async (msg: any) => {
                 if (msg.type === 'HANDSHAKE' && !handshakeLockedRef.current) {
                     handshakeLockedRef.current = true;
+                    (mesh as any)._peerManifest = msg;
                     (mesh as any)._replyInterval = setInterval(() => {
                         mesh.broadcast({ type: 'HANDSHAKE_REPLY', publicKeyRaw: wallet.publicKeyRaw, alias: wallet.alias || 'Anonymous', emoji: wallet.emoji || '👤' });
                     }, 1000);
-                    (mesh as any)._peerManifest = msg;
+                    
                     (mesh as any)._handshakeTimeout = setTimeout(() => {
                         if (handshakeLockedRef.current) {
                             clearInterval((mesh as any)._replyInterval);
@@ -935,6 +1123,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             mesh.destroy();
                             inviteMeshRef.current = null;
                             setActiveInvite(null);
+                            setShowInvite(false);
                             handshakeLockedRef.current = false;
                         } catch (e) {
                             console.error("Handshake error:", e);
@@ -956,7 +1145,13 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 return { ...prev, timeLeft: prev.timeLeft - 1 };
             });
         }, 1000);
-        return () => clearInterval(t);
+        return () => {
+            clearInterval(t);
+            if (inviteMeshRef.current) {
+                const ri = (inviteMeshRef.current as any)._replyInterval;
+                if (ri) clearInterval(ri);
+            }
+        };
     }, [activeInvite, wallet]);
 
     const handleAddContact = (c: Contact) => {
@@ -978,9 +1173,22 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         }
         const secret = await hashString("BURNER_" + normalizeId(res));
         setActiveInvite({ code: res, timeLeft: 600, secret });
+        
+        // Reset lock for new invite
+        handshakeLockedRef.current = false;
     };
 
-    const totalUnread = useMemo(() => contacts.reduce((sum: number, c: Contact) => sum + (c.unread || 0), 0), [contacts]);
+    const onViewFile = async (msgId: string) => {
+        if (!activeContact) return;
+        setContacts((prev: Contact[]) => prev.map(c => {
+            if (c.id !== activeContact.id) return c;
+            return {
+                ...c,
+                messages: c.messages.map(m => m.id === msgId ? { ...m, file: m.file ? { ...m.file, viewCount: (m.file.viewCount || 0) + 1, _viewedSent: true } : undefined } : m)
+            };
+        }));
+        await sendSignal(activeContact.id, { type: 'viewed', text: msgId });
+    };
 
     const sendDelete = async (msgId: string) => {
         if (!activeContact) return;
@@ -999,7 +1207,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
             onTouchStart={(e) => setTouchStart(e.touches[0].clientY)}
             onTouchMove={(e) => {
                 const dist = e.touches[0].clientY - touchStart;
-                if (dist > 0 && dist < 120 && window.scrollY === 0) {
+                if (dist > 0 && dist < 120 && window.scrollY === 0 && !activeId && !activeVaultId) {
                     setPullDistance(dist);
                 }
             }}
@@ -1070,6 +1278,8 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             status={activeContact ? statusMap[activeContact.id] : ''} setShowSettings={setShowSettings}
                             activeTransfer={activeTransfer} onCancelTransfer={cancelTransfer}
                             triggerAlert={triggerAlert}
+                            searchQuery={searchQuery} setSearchQuery={setSearchQuery} searchResults={searchResults}
+                            onViewFile={onViewFile}
                         />
                     } />
                     <Route path="/vault/:id" element={<VaultView wallet={wallet} notes={notes} setNotes={setNotes} triggerConfirm={triggerConfirm} />} />
@@ -1120,8 +1330,6 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 </div>
             </Modal>
 
-            {/* Other Modals (Invite, Scan, etc.) should be similarly adapted or kept as state if simple */}
-            {/* Keeping them as state for now for brevity, but they should really be routes if possible */}
             {showInvite && (
                 <Modal isOpen={showInvite} onClose={() => setShowInvite(false)} title="SHARE IDENTITY">
                     <div className="flex flex-col items-center space-y-6">
@@ -1135,7 +1343,12 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                                 <div className="bg-white p-4 rounded-xl">
                                     <QRCode value={JSON.stringify({ type: 'AETHER_SYNC', code: activeInvite.code })} size={200} />
                                 </div>
-                                <div className="text-2xl font-mono text-primary tracking-widest">{activeInvite.code}</div>
+                                <div className="flex items-center gap-4">
+                                    <div className="text-2xl font-mono text-primary tracking-widest">{activeInvite.code}</div>
+                                    <button onClick={copyInviteCode} className="p-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 text-primary transition-all">
+                                        <Copy size={18} />
+                                    </button>
+                                </div>
                                 <p className="text-[10px] text-slate-500">EXPIRES IN {Math.floor(activeInvite.timeLeft / 60)}:{(activeInvite.timeLeft % 60).toString().padStart(2, '0')}</p>
                                 <Button variant="secondary" onClick={() => setShowInvite(false)} className="w-full">DONE</Button>
                             </>
@@ -1183,7 +1396,8 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                             </div>
                         ) : (
                             <>
-                                <div id="peer-scanner" className="w-full max-w-sm mx-auto overflow-hidden rounded-lg border border-white/10 bg-black/50"></div>
+                                <div id="peer-scanner" className="w-full max-w-sm mx-auto overflow-hidden rounded-lg border border-white/10 bg-black/50 aspect-square [&_video]:object-cover [&_#html5-qrcode-button-camera-permission]:bg-primary [&_#html5-qrcode-button-camera-permission]:text-black [&_#html5-qrcode-button-camera-permission]:p-2 [&_#html5-qrcode-button-camera-permission]:rounded-lg [&_#html5-qrcode-anchor-scan-type]:hidden"></div>
+                                <div className="text-[9px] text-center text-slate-500 font-mono uppercase tracking-widest">Scanner active • align code within frame</div>
                                 <div className="relative">
                                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5"></div></div>
                                     <div className="relative flex justify-center text-[10px] uppercase font-mono"><span className="bg-surface px-2 text-slate-600">OR ENTER CODE</span></div>

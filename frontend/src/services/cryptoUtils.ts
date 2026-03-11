@@ -26,13 +26,22 @@ export interface Wallet {
 export interface Message {
   id: string;
   text: string;
-  file?: { name: string, type: string, size: number, data: string, integrity?: string };
+  file?: { 
+    name: string, 
+    type: string, 
+    size: number, 
+    data: string, 
+    integrity?: string,
+    isDownloadable?: boolean,
+    viewLimit?: number,
+    viewCount?: number
+  };
   timestamp: number;
   sender: 'me' | 'them' | string; // 'them' or alias
   senderAlias?: string;
   replyTo?: string;
   expiresAt?: number;
-  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'clear_chat' | 'clear_chat_request' | 'clear_chat_ack' | 'disconnect' | 'sync_manifest' | 'sync_delivery' | 'ack_receipt';
+  type?: 'text' | 'image' | 'system' | 'delete' | 'invite' | 'seen' | 'viewed' | 'clear_chat' | 'clear_chat_request' | 'clear_chat_ack' | 'disconnect' | 'sync_manifest' | 'sync_delivery' | 'ack_receipt';
   status?: 'delivered' | 'seen' | 'received';
   ids?: string[];
   messages?: Message[];

@@ -48,13 +48,15 @@ self.addEventListener('message', (event) => {
 
   if (type === 'SYNC_TOPICS') {
     monitoredTopics = topics || [];
-    relayUrl = url || '';
+    if (url) {
+        relayUrl = url.replace(/\/$/, '');
+    }
     console.log(`[Aether SW] Synced ${monitoredTopics.length} topics. Relay: ${relayUrl}`);
 
-    if (!pollInterval) {
+    if (!pollInterval && relayUrl) {
       pollInterval = setInterval(checkMessages, 60000); // Poll every minute
     }
-    checkMessages(); // Check immediately
+    if (relayUrl) checkMessages(); // Check immediately
   }
 
   if (type === 'NOTIFY_IF_SAFE') {

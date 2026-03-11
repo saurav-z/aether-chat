@@ -13,6 +13,31 @@ import { Button, ConfirmModal, AlertModal } from './components/ui/Common';
 
 const APP_VERSION = "2.2.0";
 
+const ScreenShield = () => {
+  const [isSecure, setIsSecure] = useState(true);
+  useEffect(() => {
+    const handleBlur = () => setIsSecure(false);
+    const handleFocus = () => setIsSecure(true);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  if (isSecure) return null;
+
+  return (
+    <div className="fixed inset-0 z-[10000] bg-[#0a0a0c] flex flex-col items-center justify-center space-y-4 select-none">
+      <style>{`@media print { body { display: none !important; } }`}</style>
+      <Shield size={48} className="text-primary animate-pulse" />
+      <div className="font-mono text-xs text-primary tracking-[0.3em] uppercase">Security Shield Active</div>
+      <p className="text-[10px] text-slate-600 font-mono text-center">CONTENT HIDDEN FOR PRIVACY<br/>SCREENSHOTS PROHIBITED</p>
+    </div>
+  );
+};
+
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -281,16 +306,20 @@ function AppContent() {
   return (
     <>
       {isBlurred && (
-        <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6">
-          <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center animate-pulse">
-            <EyeOff size={40} className="text-primary" />
+        <div className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center space-y-6 select-none">
+          <style>{`@media print { body { display: none !important; } }`}</style>
+          <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center animate-pulse border border-primary/30">
+            <Shield size={40} className="text-primary" />
           </div>
           <div className="text-center">
             <h1 className="text-2xl font-bold text-white tracking-[0.5em] font-sans">AETHER</h1>
-            <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Secure Session Paused</p>
+            <p className="text-primary font-mono text-xs mt-2 uppercase tracking-widest">Security Shield Active</p>
           </div>
-          <div className="px-4 py-2 border border-white/10 rounded bg-white/5 text-[10px] text-slate-500 font-mono">
-            FOCUS WINDOW TO RESUME
+          <div className="flex flex-col items-center gap-2">
+            <div className="px-4 py-2 border border-white/10 rounded bg-white/5 text-[10px] text-slate-500 font-mono uppercase tracking-widest">
+                Focus window to resume
+            </div>
+            <p className="text-[9px] text-slate-700 font-mono">SCREENSHOTS & PRINTING PROHIBITED</p>
           </div>
         </div>
       )}
