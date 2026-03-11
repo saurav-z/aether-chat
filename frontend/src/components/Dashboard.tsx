@@ -505,6 +505,11 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
         const match = location.pathname.match(/\/dashboard\/chat\/([^/]+)/);
         return match ? match[1] : undefined;
     }, [location.pathname]);
+
+    const activeVaultId = useMemo(() => {
+        const match = location.pathname.match(/\/dashboard\/vault\/([^/]+)/);
+        return match ? match[1] : undefined;
+    }, [location.pathname]);
     
     const activeTab = useMemo<Tab>(() => {
         if (location.pathname.startsWith('/dashboard/vault')) return 'VAULT';
@@ -979,7 +984,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
 
             <SidebarRail activeTab={activeTab} totalUnread={totalUnread} setShowNotifications={setShowNotifications} onLogout={onLogout} />
 
-            <div className={`${activeId ? 'hidden md:flex' : 'flex'} md:w-80 w-full flex-col h-full bg-surface z-10`}>
+            <div className={`${(activeId || activeVaultId) ? 'hidden md:flex' : 'flex'} md:w-80 w-full flex-col h-full bg-surface z-10`}>
                 <Routes>
                     <Route path="/" element={
                         <ChatList
@@ -1016,7 +1021,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 </Routes>
             </div>
 
-            <div className={`flex-1 flex flex-col relative w-full h-full ${!activeId && !location.pathname.includes('/vault/') && 'hidden md:flex'}`}>
+            <div className={`flex-1 flex flex-col relative w-full h-full ${!(activeId || activeVaultId) && 'hidden md:flex'}`}>
                 <Routes>
                     <Route path="/chat/:id" element={
                         <ChatWindow
@@ -1035,7 +1040,7 @@ export default function Dashboard({ wallet, contacts, setContacts, onLogout, mes
                 </Routes>
             </div>
 
-            <div className={`md:hidden fixed bottom-0 left-0 right-0 h-16 bg-surface border-t border-white/5 flex items-center justify-around z-40 safe-pb ${activeId || location.pathname.includes('/vault/') ? 'hidden' : 'flex'}`}>
+            <div className={`md:hidden fixed bottom-0 left-0 right-0 h-16 bg-surface border-t border-white/5 flex items-center justify-around z-40 safe-pb ${(activeId || activeVaultId) ? 'hidden' : 'flex'}`}>
                 <button onClick={() => navigate('/dashboard')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'CHATS' ? 'text-primary' : 'text-slate-500'}`}>
                     <MessageSquare size={20} />
                     <span className="text-[9px] font-bold tracking-wider">COMMS</span>
